@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  passwordHash       String
+  name               String
+  bio                String?
+  college            String?
+  avatarUrl          String?
+  ratingAvg          Float?   @default(0.0)
+  googleRefreshToken String?
+  refreshTokenHash   String?
+  createdAt          DateTime @default(now())
+
+  offeredSkills OfferedSkill[]
+  wantedSkills  WantedSkill[]
+  matchesAsA    Match[]        @relation("MatchUserA")
+  matchesAsB    Match[]        @relation("MatchUserB")
+  reviewsGiven  Review[]       @relation("ReviewAuthor")
+  reviewsGotten Review[]       @relation("ReviewTarget")
+  messages      Message[]
+  badges        UserBadge[]
+}
+
+model Skill {
+  id       String         @id @default(uuid())
+  name     String         @unique
+  category String
+  
+  offeredBy OfferedSkill[]
+  wantedBy  WantedSkill[]
+}
+
+model OfferedSkill {
+  userId      String
+  skillId     String
+  proficiency String // e.g., BEGINNER, INTERMEDIATE, EXPERT
+
+  user  User  @relation(fields: [userId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@id([userId, skillId])
+}
+
+model WantedSkill {
+  userId  String
+  skillId String
+
+  user  User  @relation(fields: [userId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@id([userId, skillId])
+}
+
+model Match {
+  id        String   @id @default(uuid())
+  userAId   String
+  userBId   String
+  score     Float?
+  status    MatchStatus
+  createdAt DateTime @default(now())
+
+  userA    User      @relation("MatchUserA", fields: [userAId], references: [id])
+  userB    User      @relation("MatchUserB", fields: [userBId], references: [id])
+  sessions Session[]
+  messages Message[]
+}
+
+model Session {
+  id              String   @id @default(uuid())
+  matchId         String
+  scheduledAt     DateTime
+  durationMinutes Int
+  meetingLink     String?
+  googleEventId   String?
+  googleHtmlLink  String?
+  status          SessionStatus
+
+  match   Match    @relation(fields: [matchId], references: [id])
+  reviews Review[]
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  sessionId  String
+  reviewerId String
+  revieweeId String
+  rating     Int
+  comment    String?
+
+  session  Session @relation(fields: [sessionId], references: [id])
+  reviewer User    @relation("ReviewAuthor", fields: [reviewerId], references: [id])
+  reviewee User    @relation("ReviewTarget", fields: [revieweeId], references: [id])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  matchId   String
+  senderId  String
+  content   String
+  createdAt DateTime @default(now())
+
+  match  Match @relation(fields: [matchId], references: [id])
+  sender User  @relation(fields: [senderId], references: [id])
+}
+
+model Badge {
+  id       String      @id @default(uuid())
+  name     String
+  criteria String
+  users    UserBadge[]
+}
+
+model UserBadge {
+  userId   String
+  badgeId  String
+  earnedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  badge Badge @relation(fields: [badgeId], references: [id])
+
+  @@id([userId, badgeId])
+}
+
+enum MatchStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
