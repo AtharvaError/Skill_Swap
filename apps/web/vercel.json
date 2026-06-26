@@ -1,0 +1,16 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "installCommand": "cd ../.. && npm install",
+  "rootDirectory": "apps/web",
+  "crons": [],
+  "functions": {
+    "api/**/*.ts": {
+      "memory": 512
+    }
+  },
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@next_public_api_url"
+  }
+}

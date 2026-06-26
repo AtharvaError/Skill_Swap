@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  lint-and-build:
+    name: Lint & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint all workspaces
+        run: npm run lint
+
+      - name: Build API
+        run: npm run build --workspace=apps/api
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/skillswap"
+          JWT_SECRET: "ci-build-secret-do-not-use-in-prod"
+          JWT_REFRESH_SECRET: "ci-build-refresh-secret-do-not-use-in-prod"
+          CSRF_SECRET: "ci-build-csrf-secret-do-not-use-in-prod"
+
+      - name: Build Web
+        run: npm run build --workspace=apps/web
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:3001"

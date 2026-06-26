@@ -17,7 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useState } from 'react';
+import toast from 'react-hot-toast';
+import { PageTransition } from '@/components/PageTransition';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address.'),
@@ -26,8 +27,7 @@ const formSchema = z.object({
 
 export default function LoginPage() {
   const router = useRouter();
-  const [error, setError] = useState('');
-  
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -39,56 +39,67 @@ export default function LoginPage() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       await api.post('/auth/login', values);
+      toast.success('Welcome back! Redirecting...');
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid credentials');
+      toast.error(err.response?.data?.message || 'Invalid credentials');
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold text-center">Log In</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Form>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="john@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="******" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {error && <div className="text-red-500 text-sm">{error}</div>}
-              <Button type="submit" className="w-full">Log In</Button>
-            </form>
-          </Form>
-          <div className="mt-4 text-center text-sm">
-            Don't have an account? <Link href="/signup" className="text-blue-500 hover:underline">Sign up</Link>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <PageTransition>
+      <main className="flex min-h-screen items-center justify-center bg-background p-4">
+        <section className="w-full max-w-md">
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold text-center">
+                <h1>Log In</h1>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Form>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel htmlFor="email">Email</FormLabel>
+                        <FormControl>
+                          <Input id="email" type="email" placeholder="john@example.com" aria-label="Email address" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel htmlFor="password">Password</FormLabel>
+                        <FormControl>
+                          <Input id="password" type="password" placeholder="******" aria-label="Password" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" className="w-full" aria-label="Log in to your account">
+                    Log In
+                  </Button>
+                </form>
+              </Form>
+              <p className="mt-4 text-center text-sm text-muted-foreground">
+                Don&apos;t have an account?{' '}
+                <Link href="/signup" className="text-primary hover:underline" aria-label="Sign up for free">
+                  Sign up
+                </Link>
+              </p>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+    </PageTransition>
   );
 }

@@ -5,6 +5,18 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { api } from '@/lib/api';
 
+function LoadingSkeleton() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="glass-card flex flex-col items-center gap-4 rounded-3xl p-8">
+        <div className="skeleton h-12 w-12 rounded-full" />
+        <div className="skeleton h-4 w-48" />
+        <div className="skeleton h-3 w-32" />
+      </div>
+    </div>
+  );
+}
+
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
@@ -24,11 +36,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }, [isError, router]);
 
   if (isLoading) {
-    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+    return <LoadingSkeleton />;
   }
 
   if (isError || !user) {
-    return null; // Will redirect
+    return null;
   }
 
   return <>{children}</>;

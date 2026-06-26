@@ -9,6 +9,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageTransition } from '@/components/PageTransition';
+import toast from 'react-hot-toast';
 
 type ChatMessage = {
   id: string;
@@ -82,6 +84,7 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
 
     socket.on('connect_error', () => {
       setIsConnected(false);
+      toast.error('Connection lost. Trying to reconnect...');
     });
 
     socketRef.current = socket;
@@ -131,94 +134,117 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
   const sanitizedHtml = (text: string) => ({ __html: DOMPurify.sanitize(text).replace(/\n/g, '<br/>') });
 
   return (
-    <div className="min-h-screen bg-[#111018] px-6 py-8 text-white">
-      <div className="mx-auto max-w-5xl rounded-3xl border border-slate-800 bg-slate-950/90 p-6 shadow-lg shadow-slate-900/20">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">SkillSwap Chat</h1>
-            <p className="mt-2 text-sm text-slate-400">Live chat for your accepted match.</p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/matches" className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700">Back to Matches</Link>
-            <Button onClick={() => window.location.assign(`/schedule/${matchId}`)} className="rounded-2xl bg-purple-700 px-4 py-2 text-sm text-white hover:bg-purple-600">Schedule Quick Session</Button>
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm uppercase tracking-[0.26em] text-slate-500">Match Chat</p>
-                <p className="mt-1 text-xs text-slate-400">Match ID: {matchId}</p>
-              </div>
-              <div className="rounded-full bg-slate-800 px-3 py-1 text-xs text-emerald-300">
-                {isConnected ? 'Connected' : 'Connecting...'}
-              </div>
+    <PageTransition>
+      <main className="min-h-screen bg-background px-6 py-8 text-white">
+        <div className="mx-auto max-w-5xl glass-card rounded-3xl p-6 shadow-lg">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-white">SkillSwap Chat</h1>
+              <p className="mt-2 text-sm text-slate-400">Live chat for your accepted match.</p>
             </div>
-
-            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-slate-300">
-              <span>{onlineUsers.length} online</span>
-              {displayTyping ? <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-200">{displayTyping}</span> : null}
-            </div>
-
-            <div className="space-y-3 overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/70 p-4 text-sm leading-6 text-slate-200" style={{ maxHeight: '520px', overflowY: 'auto' }}>
-              {isLoading ? (
-                <div className="space-y-3">
-                  <div className="h-12 rounded-2xl bg-slate-800" />
-                  <div className="h-12 rounded-2xl bg-slate-800" />
-                  <div className="h-12 rounded-2xl bg-slate-800" />
-                </div>
-              ) : isError ? (
-                <div className="rounded-3xl bg-slate-900 p-5 text-slate-300">Unable to load messages. Please refresh the page.</div>
-              ) : messages.length === 0 ? (
-                <div className="rounded-3xl bg-slate-900 p-5 text-slate-300">No messages yet. Send the first message to start the conversation.</div>
-              ) : (
-                messages.map((message) => (
-                  <div key={message.id} className="rounded-3xl border border-slate-800 bg-slate-900/80 p-4">
-                    <div className="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                      <span>{message.senderName}</span>
-                      <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <p className="whitespace-pre-wrap text-sm text-slate-100" dangerouslySetInnerHTML={sanitizedHtml(message.content)} />
-                  </div>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-              <label className="sr-only" htmlFor="chatMessage">Type your message</label>
-              <Input
-                id="chatMessage"
-                value={draft}
-                onChange={(event) => handleInput(event.target.value)}
-                placeholder="Write a safe message..."
-                className="min-h-[54px] flex-1 bg-slate-950/70 text-white"
-              />
-              <Button onClick={handleSend} disabled={!draft.trim()} className="min-h-[54px] bg-emerald-600 text-white hover:bg-emerald-500">
-                Send
+            <nav className="flex flex-wrap gap-3">
+              <Link
+                href="/matches"
+                aria-label="Back to matches"
+                className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700"
+              >
+                Back to Matches
+              </Link>
+              <Button
+                onClick={() => window.location.assign(`/schedule/${matchId}`)}
+                aria-label="Schedule a quick session"
+                className="rounded-2xl bg-purple-700 px-4 py-2 text-sm text-white hover:bg-purple-600"
+              >
+                Schedule Quick Session
               </Button>
-            </div>
-          </section>
+            </nav>
+          </div>
 
-          <aside className="space-y-4 rounded-3xl border border-slate-800 bg-slate-900/70 p-6">
-            <div className="space-y-2">
-              <h2 className="text-lg font-semibold text-white">Chat controls</h2>
-              <p className="text-sm text-slate-400">Use the typing indicator and online presence to keep your conversation active.</p>
-            </div>
-            <div className="rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-300">
-              <p className="mb-2 text-xs uppercase tracking-[0.22em] text-slate-500">Active participants</p>
-              {onlineUsers.length > 0 ? (
-                onlineUsers.map((user) => (
-                  <div key={user} className="rounded-2xl bg-slate-800 px-3 py-2 text-white">{user}</div>
-                ))
-              ) : (
-                <p className="text-slate-500">No one else is currently online.</p>
-              )}
-            </div>
-          </aside>
+          <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+            <section className="glass-card rounded-3xl p-6" aria-label="Chat messages">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.26em] text-slate-500">Match Chat</p>
+                  <p className="mt-1 text-xs text-slate-400">Match ID: {matchId}</p>
+                </div>
+                <div className="rounded-full bg-slate-800 px-3 py-1 text-xs text-emerald-300">
+                  {isConnected ? 'Connected' : 'Connecting...'}
+                </div>
+              </div>
+
+              <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-slate-300">
+                <span>{onlineUsers.length} online</span>
+                {displayTyping ? <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-200">{displayTyping}</span> : null}
+              </div>
+
+              <div className="glass rounded-3xl p-4 text-sm leading-6 text-slate-200" style={{ maxHeight: '520px', overflowY: 'auto' }}>
+                {isLoading ? (
+                  <div className="space-y-3" aria-label="Loading messages">
+                    <div className="skeleton h-12 rounded-2xl" />
+                    <div className="skeleton h-12 rounded-2xl" />
+                    <div className="skeleton h-12 rounded-2xl" />
+                  </div>
+                ) : isError ? (
+                  <div className="glass rounded-3xl p-5 text-slate-300">Unable to load messages. Please refresh the page.</div>
+                ) : messages.length === 0 ? (
+                  <div className="glass rounded-3xl p-5 text-slate-300">No messages yet. Send the first message to start the conversation.</div>
+                ) : (
+                  messages.map((message) => (
+                    <div key={message.id} className="glass rounded-3xl border border-slate-800 p-4 mb-3">
+                      <div className="mb-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+                        <span>{message.senderName}</span>
+                        <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-100" dangerouslySetInnerHTML={sanitizedHtml(message.content)} />
+                    </div>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <form
+                className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
+                onSubmit={(event) => { event.preventDefault(); handleSend(); }}
+              >
+                <label className="sr-only" htmlFor="chatMessage">Type your message</label>
+                <Input
+                  id="chatMessage"
+                  value={draft}
+                  onChange={(event) => handleInput(event.target.value)}
+                  placeholder="Write a safe message..."
+                  aria-label="Chat message input"
+                  className="min-h-[54px] flex-1 glass text-white"
+                />
+                <Button
+                  type="submit"
+                  disabled={!draft.trim()}
+                  aria-label="Send message"
+                  className="min-h-[54px] bg-emerald-600 text-white hover:bg-emerald-500"
+                >
+                  Send
+                </Button>
+              </form>
+            </section>
+
+            <aside className="glass-card rounded-3xl p-6 space-y-4" aria-label="Chat controls">
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-white">Chat controls</h2>
+                <p className="text-sm text-slate-400">Use the typing indicator and online presence to keep your conversation active.</p>
+              </div>
+              <div className="glass rounded-3xl p-4 text-sm text-slate-300">
+                <p className="mb-2 text-xs uppercase tracking-[0.22em] text-slate-500">Active participants</p>
+                {onlineUsers.length > 0 ? (
+                  onlineUsers.map((user) => (
+                    <div key={user} className="rounded-2xl bg-slate-800 px-3 py-2 text-white">{user}</div>
+                  ))
+                ) : (
+                  <p className="text-slate-500">No one else is currently online.</p>
+                )}
+              </div>
+            </aside>
+          </div>
         </div>
-      </div>
-    </div>
+      </main>
+    </PageTransition>
   );
 }

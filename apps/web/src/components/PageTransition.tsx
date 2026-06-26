@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 
 const variants = {
   hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' as const } },
 };
 
 export function PageTransition({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -19,6 +19,8 @@ export function PageTransition({ children, className }: { children: React.ReactN
     </motion.div>
   );
 }
+
+export default PageTransition;
 
 export function SlideUp({ children, delay = 0, className }: { children: React.ReactNode; delay?: number; className?: string }) {
   return (
