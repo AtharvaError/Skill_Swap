@@ -1,17 +1,22 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export const apiBaseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export const api = axios.create({
-  baseURL,
+  baseURL: apiBaseURL,
   withCredentials: true,
 });
 
 let csrfToken: string | null = null;
 let isRefreshing = false;
-let failedQueue: any[] = [];
+let failedQueue: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 
-const processQueue = (error: any, token: string | null = null) => {
+type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  _retryCsrf?: boolean;
+};
+
+const processQueue = (error: unknown | null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
@@ -29,7 +34,7 @@ api.interceptors.request.use(
     if (method && ['post', 'put', 'delete', 'patch'].includes(method)) {
       if (!csrfToken) {
         try {
-          const response = await axios.get(`${baseURL}/auth/csrf`, {
+          const response = await axios.get(`${apiBaseURL}/auth/csrf`, {
             withCredentials: true,
           });
           csrfToken = response.data.csrfToken;
@@ -50,13 +55,17 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    if (!axios.isAxiosError(error) || !error.config) {
+      return Promise.reject(error);
+    }
+
+    const originalRequest = error.config as RetriableRequestConfig;
 
     // 1. If CSRF token validation fails (403), fetch a new one and retry the request once
     if (error.response?.status === 403 && !originalRequest._retryCsrf) {
       originalRequest._retryCsrf = true;
       try {
-        const response = await axios.get(`${baseURL}/auth/csrf`, {
+        const response = await axios.get<{ csrfToken: string }>(`${apiBaseURL}/auth/csrf`, {
           withCredentials: true,
         });
         csrfToken = response.data.csrfToken;
@@ -81,7 +90,7 @@ api.interceptors.response.use(
       }
 
       if (isRefreshing) {
-        return new Promise((resolve, reject) => {
+        return new Promise<void>((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
           .then(() => api(originalRequest))
@@ -96,7 +105,7 @@ api.interceptors.response.use(
         processQueue(null);
         isRefreshing = false;
         return api(originalRequest);
-      } catch (refreshError) {
+      } catch (refreshError: unknown) {
         processQueue(refreshError);
         isRefreshing = false;
 

@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageTransition } from '@/components/PageTransition';
 import toast from 'react-hot-toast';
+import { apiBaseURL } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/errors';
 
 function roundUpToNearestMinutes(minutes: number) {
   const date = new Date();
@@ -18,9 +20,14 @@ function roundUpToNearestMinutes(minutes: number) {
   return date;
 }
 
+function toDateTimeLocalValue(date: Date) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
 export default function ScheduleMatchPage({ params }: { params: { matchId: string } }) {
   const { matchId } = params;
-  const [dateTime, setDateTime] = useState(() => roundUpToNearestMinutes(30).toISOString().slice(0, 16));
+  const [dateTime, setDateTime] = useState(() => toDateTimeLocalValue(roundUpToNearestMinutes(30)));
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [calendarUrl, setCalendarUrl] = useState<string | null>(null);
@@ -57,8 +64,8 @@ export default function ScheduleMatchPage({ params }: { params: { matchId: strin
       setStatusMessage('Session confirmed! View the calendar event below.');
       toast.success('Session scheduled!');
     },
-    onError: (error: any) => {
-      const msg = error?.response?.data?.message ?? 'Unable to create session.';
+    onError: (error: unknown) => {
+      const msg = getApiErrorMessage(error, 'Unable to create session.');
       setStatusMessage(msg);
       toast.error(msg);
     },
@@ -75,7 +82,7 @@ export default function ScheduleMatchPage({ params }: { params: { matchId: strin
   );
 
   const connectCalendar = () => {
-    window.location.assign('http://localhost:3001/calendar/connect');
+    window.location.assign(`${apiBaseURL}/calendar/connect`);
   };
 
   return (

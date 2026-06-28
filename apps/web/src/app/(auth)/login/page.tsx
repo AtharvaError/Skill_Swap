@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { PageTransition } from '@/components/PageTransition';
+import { getApiErrorMessage } from '@/lib/errors';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address.'),
@@ -41,8 +42,8 @@ export default function LoginPage() {
       await api.post('/auth/login', values);
       toast.success('Welcome back! Redirecting...');
       router.push('/dashboard');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Invalid credentials');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Invalid credentials'));
     }
   }
 

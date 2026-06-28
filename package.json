@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api": "npm run start:dev --workspace=apps/api",
+    "dev:api": "PORT=3001 npm run start:dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""

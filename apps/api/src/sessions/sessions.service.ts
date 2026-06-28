@@ -35,6 +35,11 @@ export class SessionsService {
       throw new UnauthorizedException('Match not found or accessible');
     }
 
+    const start = new Date(dto.scheduledAt);
+    if (Number.isNaN(start.getTime()) || start.getTime() <= Date.now()) {
+      throw new BadRequestException('Session must be scheduled in the future');
+    }
+
     const otherUser = match.userAId === userId ? match.userB : match.userA;
 
     const user = await this.prisma.user.findUnique({
@@ -58,7 +63,6 @@ export class SessionsService {
     oauth2Client.setCredentials({ refresh_token: userOAuth.googleRefreshToken });
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    const start = new Date(dto.scheduledAt);
     const end = new Date(start.getTime() + dto.durationMinutes * 60000);
 
     const event = {
@@ -87,6 +91,7 @@ export class SessionsService {
     });
 
     const googleEventId = insertResponse.data.id;
+    const googleHtmlLink = insertResponse.data.htmlLink;
     const googleMeetLink = insertResponse.data.hangoutLink ?? insertResponse.data.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri;
 
     // Create Daily.co room for video calling
@@ -98,6 +103,7 @@ export class SessionsService {
         durationMinutes: dto.durationMinutes,
         meetingLink: googleMeetLink,
         googleEventId,
+        googleHtmlLink,
         status: 'SCHEDULED',
       },
     });
@@ -182,6 +188,10 @@ export class SessionsService {
 
     if (session.match.userAId !== userId && session.match.userBId !== userId) {
       throw new UnauthorizedException('You do not have access to this session');
+    }
+
+    if (new Date(session.scheduledAt).getTime() > Date.now()) {
+      throw new BadRequestException('Session cannot be completed before it starts');
     }
 
     return this.prisma.session.update({

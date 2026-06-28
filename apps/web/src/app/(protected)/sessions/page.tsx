@@ -3,9 +3,7 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import PageTransition, { SlideUp, FadeIn } from '@/components/PageTransition';
-import { motion } from 'framer-motion';
+import PageTransition, { FadeIn } from '@/components/PageTransition';
 
 export default function MySessionsPage() {
   const { data, isLoading, isError } = useQuery({

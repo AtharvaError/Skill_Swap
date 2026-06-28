@@ -9,10 +9,28 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input';
 import { Dialog } from '@base-ui/react/dialog';
 import { Select } from '@base-ui/react/select';
-import { Star, Award } from 'lucide-react';
-import PageTransition, { SlideUp, FadeIn } from '@/components/PageTransition';
+import PageTransition, { SlideUp } from '@/components/PageTransition';
 import toast from 'react-hot-toast';
-import { motion } from 'framer-motion';
+import { getApiErrorMessage } from '@/lib/errors';
+
+type UserBadge = {
+  earnedAt: string;
+  badge: {
+    id: string;
+    name: string;
+    criteria: string;
+  };
+};
+type UserProfile = {
+  id: string;
+  email: string;
+  name: string;
+  bio?: string | null;
+  college?: string | null;
+  avatarUrl?: string | null;
+  ratingAvg?: number | null;
+  badges?: UserBadge[];
+};
 
 const proficiencyOptions = [
   { value: 'BEGINNER', label: 'Beginner' },
@@ -37,7 +55,7 @@ export default function ProfilePage() {
     queryKey: ['me'],
     queryFn: async () => {
       const res = await api.get('/users/me');
-      return res.data;
+      return res.data as UserProfile;
     },
   });
 
@@ -76,8 +94,8 @@ export default function ProfilePage() {
       setEditError('');
       toast.success('Profile updated!');
     },
-    onError: (error: any) => {
-      const msg = error.response?.data?.message || 'Could not save profile';
+    onError: (error: unknown) => {
+      const msg = getApiErrorMessage(error, 'Could not save profile');
       setEditError(msg);
       toast.error(msg);
     },
@@ -94,8 +112,8 @@ export default function ProfilePage() {
       setAddError('');
       toast.success('Skill added!');
     },
-    onError: (error: any) => {
-      const msg = error.response?.data?.message || 'Could not add skill';
+    onError: (error: unknown) => {
+      const msg = getApiErrorMessage(error, 'Could not add skill');
       setAddError(msg);
       toast.error(msg);
     },
@@ -112,8 +130,8 @@ export default function ProfilePage() {
       setAddError('');
       toast.success('Skill added!');
     },
-    onError: (error: any) => {
-      const msg = error.response?.data?.message || 'Could not add skill';
+    onError: (error: unknown) => {
+      const msg = getApiErrorMessage(error, 'Could not add skill');
       setAddError(msg);
       toast.error(msg);
     },
@@ -127,8 +145,8 @@ export default function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ['skills', 'offered'] });
       toast.success('Skill removed');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Could not remove skill');
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not remove skill'));
     },
   });
 
@@ -140,8 +158,8 @@ export default function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ['skills', 'wanted'] });
       toast.success('Skill removed');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Could not remove skill');
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not remove skill'));
     },
   });
 
@@ -282,7 +300,7 @@ export default function ProfilePage() {
                         <span>Earned Badges</span>
                       </h2>
                       <div className="flex flex-wrap gap-2" role="list">
-                        {userQuery.data.badges.map((ub: any) => (
+                        {userQuery.data.badges.map((ub) => (
                           <div
                             key={ub.badge.id}
                             className="group relative inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-950/40 px-3 py-1.5 text-xs text-purple-200 cursor-help"

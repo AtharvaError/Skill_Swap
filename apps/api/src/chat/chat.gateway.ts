@@ -8,7 +8,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, UsePipes, ValidationPipe } from '@nestjs/common';
@@ -122,10 +122,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('typing')
   async handleTyping(
     @ConnectedSocket() socket: Socket,
-    @MessageBody() payload: { matchId: string; isTyping: boolean },
+    @MessageBody() payload: TypingDto,
   ) {
     const userId = socket.data.userId as string;
     if (!userId) {
+      throw new UnauthorizedException();
+    }
+
+    const match = await this.prisma.match.findUnique({ where: { id: payload.matchId } });
+    if (!match || (match.userAId !== userId && match.userBId !== userId)) {
       throw new UnauthorizedException();
     }
 

@@ -1,0 +1,109 @@
+
+> skillswap-monorepo@1.0.0 dev
+> concurrently "npm run dev:api" "npm run dev:web"
+
+(node:30536) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[1] 
+[1] > skillswap-monorepo@1.0.0 dev:web
+[1] > npm run dev --workspace=apps/web
+[1] 
+[0] 
+[0] > skillswap-monorepo@1.0.0 dev:api
+[0] > PORT=3001 npm run start:dev --workspace=apps/api
+[0] 
+[0] 'PORT' is not recognized as an internal or external command,
+[0] operable program or batch file.
+[0] npm run dev:api exited with code 1
+[1] 
+[1] > web@0.1.0 dev
+[1] > next dev
+[1] 
+[1] ▲ Next.js 16.2.9 (Turbopack)
+[1] - Local:         http://localhost:3000
+[1] - Network:       http://10.235.170.185:3000
+[1] ✓ Ready in 2.4s
+[1] - Experiments (use with caution):
+[1]   · serverActions
+[1] 
+[1] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour.
+[1]  GET /signup 200 in 885ms (next.js: 375ms, application-code: 510ms)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] Encountered two children with the same key, ``. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. 
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at warnOnInvalidKey (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4103:21)
+[1]     at reconcileChildrenArray (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4129:160)
+[1]     at reconcileChildFibersImpl (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4236:51)
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4261:39)
+[1]     at reconcileChildren (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:5898:51)
+[1]     at updateFunctionComponent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6086:9)
+[1]     at beginWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6691:24)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at performUnitOfWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9555:97)
+[1]     at workLoopConcurrentByScheduler (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9551:58)
+[1]     at renderRootConcurrent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9534:71)
+[1]     at performWorkOnRoot (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9061:150)
+[1]     at performWorkOnRootViaSchedulerTask (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:10255:9)
+[1]     at MessagePort.performWorkUntilDeadline (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:2647:64) (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)
+[1]  GET /signup 200 in 1456ms (next.js: 481ms, application-code: 975ms)
+[1]  GET /signup 200 in 470ms (next.js: 68ms, application-code: 402ms)
+[1]  GET /signup 200 in 155ms (next.js: 19ms, application-code: 137ms)
+[1] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour.
+[1]  GET / 200 in 347ms (next.js: 94ms, application-code: 253ms)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] Encountered two children with the same key, ``. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. 
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at warnOnInvalidKey (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4103:21)
+[1]     at reconcileChildrenArray (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4129:160)
+[1]     at reconcileChildFibersImpl (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4236:51)
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4261:39)
+[1]     at reconcileChildren (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:5898:51)
+[1]     at updateFunctionComponent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6086:9)
+[1]     at beginWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6691:24)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at performUnitOfWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9555:97)
+[1]     at workLoopConcurrentByScheduler (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9551:58)
+[1]     at renderRootConcurrent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9534:71)
+[1]     at performWorkOnRoot (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9061:150)
+[1]     at performWorkOnRootViaSchedulerTask (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:10255:9)
+[1]     at MessagePort.performWorkUntilDeadline (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:2647:64) (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)
+[1]  GET /signup 200 in 81ms (next.js: 16ms, application-code: 65ms)
+[1]  GET /login 200 in 140ms (next.js: 88ms, application-code: 52ms)
+[1]  GET /signup 200 in 47ms (next.js: 10ms, application-code: 37ms)
+[1] [browser] Failed to pre-fetch CSRF token: AxiosError: Network Error
+[1]     at XMLHttpRequest.handleError (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:3000:25)
+[1]     at Axios.request (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:4090:49)
+[1]     at async (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:401:34)
+[1]     at async Axios.request (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:4086:20)
+[1]     at async onSubmit (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:698:13)
+[1]     at async (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_react-hook-form_dist_index_esm_mjs_0b0kr13._.js:2438:21) (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:406:25)
+[1] [browser] Failed to pre-fetch CSRF token: AxiosError: Network Error
+[1]     at XMLHttpRequest.handleError (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:3000:25)
+[1]     at Axios.request (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:4090:49)
+[1]     at async (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:401:34)
+[1]     at async Axios.request (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_axios_lib_1dybt4p._.js:4086:20)
+[1]     at async onSubmit (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:698:13)
+[1]     at async (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_react-hook-form_dist_index_esm_mjs_0b0kr13._.js:2438:21) (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/apps_web_src_0vce2tm._.js:406:25)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] You're attempting to animate multiple children within AnimatePresence, but its mode is set to "wait". This will lead to odd visual behaviour. (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477:13)
+[1] [browser] Encountered two children with the same key, ``. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. 
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at warnOnInvalidKey (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4103:21)
+[1]     at reconcileChildrenArray (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4120:29)
+[1]     at reconcileChildFibersImpl (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4236:51)
+[1]     at <unknown> (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4261:39)
+[1]     at reconcileChildren (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:5898:119)
+[1]     at updateFunctionComponent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6086:9)
+[1]     at beginWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:6691:24)
+[1]     at runWithFiberInDEV (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:965:74)
+[1]     at performUnitOfWork (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9555:97)
+[1]     at workLoopConcurrentByScheduler (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9551:58)
+[1]     at renderRootConcurrent (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9534:71)
+[1]     at performWorkOnRoot (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:9061:150)
+[1]     at performWorkOnRootViaSchedulerTask (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:10255:9)
+[1]     at MessagePort.performWorkUntilDeadline (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_1amofcm._.js:2647:64) (file://D:/Hackathon/Skill swap/apps/web/.next/dev/static/chunks/node_modules_next_dist_compiled_react-dom_096_9a-._.js:4104:33)

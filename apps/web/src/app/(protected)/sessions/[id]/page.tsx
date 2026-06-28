@@ -7,9 +7,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Star } from 'lucide-react';
-import PageTransition, { SlideUp, FadeIn } from '@/components/PageTransition';
+import PageTransition, { SlideUp } from '@/components/PageTransition';
 import toast from 'react-hot-toast';
-import { motion } from 'framer-motion';
+import { getApiErrorMessage } from '@/lib/errors';
 
 interface Session {
   id: string;
@@ -67,7 +67,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const queryClient = useQueryClient();
   const [countdown, setCountdown] = useState<CountdownState | null>(null);
   const [showCall, setShowCall] = useState(false);
-  const callFrameRef = useRef<any>(null);
+  const callFrameRef = useRef<ReturnType<typeof DailyIframe.createFrame> | null>(null);
 
   const [hoverRating, setHoverRating] = useState(0);
   const [rating, setRating] = useState(0);
@@ -127,23 +127,19 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
     const initDaily = async () => {
       try {
-        const callFrame = DailyIframe.createFrame({
-          iframeElement: document.getElementById('daily-frame'),
+        const iframeElement = document.getElementById('daily-frame');
+        if (!(iframeElement instanceof HTMLDivElement)) {
+          throw new Error('Daily iframe container not found');
+        }
+
+        const callFrame = DailyIframe.createFrame(iframeElement, {
           showLeaveButton: true,
           showFullscreenButton: true,
-          layoutConfig: {
-            preset: 'default',
-          },
-        } as any);
+        });
 
         callFrameRef.current = callFrame;
 
-        callFrame.on('joined-meeting', () => {
-          console.log('User joined the Daily room');
-        });
-
         callFrame.on('left-meeting', async () => {
-          console.log('User left the Daily room');
           setShowCall(false);
           try {
             await api.post(`/sessions/${sessionId}/complete`);
@@ -154,7 +150,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
           setShowReviewModal(true);
         });
 
-        callFrame.on('error', (error: any) => {
+        callFrame.on('error', (error: unknown) => {
           console.error('Daily iframe error:', error);
         });
 
@@ -224,8 +220,8 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       setRating(0);
       setComment('');
       toast.success('Review submitted!');
-    } catch (err: any) {
-      const msg = err.response?.data?.message || 'Failed to submit review';
+    } catch (err: unknown) {
+      const msg = getApiErrorMessage(err, 'Failed to submit review');
       setReviewError(msg);
       toast.error(msg);
     } finally {

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Res, Req, UseGuards } from '@nestjs/common';
 import { CalendarService } from './calendar.service';
 import type { Response, Request } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
@@ -17,13 +17,13 @@ export class CalendarController {
   @Get('oauth2callback')
   async oauth2callback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
     if (!code || !state) {
-      return res.status(400).send('Missing OAuth parameters');
+      throw new BadRequestException('Missing OAuth parameters');
     }
 
-    const statePayload = JSON.parse(state) as { userId: string };
+    const statePayload = this.calendarService.verifyState(state);
     const tokens = await this.calendarService.exchangeCode(code);
     await this.calendarService.saveRefreshToken(statePayload.userId, tokens.refresh_token!);
 
-    return res.redirect('http://localhost:3000/schedule/success');
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/schedule/success`);
   }
 }

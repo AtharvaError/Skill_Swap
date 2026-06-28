@@ -5,7 +5,7 @@ export const {
   doubleCsrfProtection,
   generateCsrfToken,
 } = doubleCsrf({
-  getSecret: () => process.env.CSRF_SECRET || 'dev-fallback--set-CSRF_SECRET-env-var',
+  getSecret: () => process.env.CSRF_SECRET!,
   cookieName: 'x-csrf-token',
   cookieOptions: {
     sameSite: 'strict',

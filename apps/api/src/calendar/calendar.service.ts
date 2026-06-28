@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { google } from 'googleapis';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class CalendarService {
@@ -30,8 +31,38 @@ export class CalendarService {
       access_type: 'offline',
       prompt: 'consent',
       scope: scopes,
-      state: JSON.stringify({ userId }),
+      state: this.createSignedState(userId),
     });
+  }
+
+  verifyState(state: string): { userId: string; nonce?: string; iat: number } {
+    const [encodedPayload, signature] = state.split('.');
+    if (!encodedPayload || !signature) {
+      throw new Error('Invalid OAuth state');
+    }
+
+    const expectedSignature = this.sign(encodedPayload);
+    const signatureBuffer = Buffer.from(signature, 'base64url');
+    const expectedBuffer = Buffer.from(expectedSignature, 'base64url');
+
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
+      throw new Error('Invalid OAuth state signature');
+    }
+
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
+      userId?: string;
+      nonce?: string;
+      iat?: number;
+    };
+
+    if (!payload.userId || !payload.iat || Date.now() - payload.iat > 10 * 60 * 1000) {
+      throw new Error('Expired OAuth state');
+    }
+
+    return { userId: payload.userId, nonce: payload.nonce, iat: payload.iat };
   }
 
   async exchangeCode(code: string) {
@@ -49,5 +80,26 @@ export class CalendarService {
       where: { id: userId },
       data: { googleRefreshToken: refreshToken },
     });
+  }
+
+  private createSignedState(userId: string) {
+    const payload = Buffer.from(
+      JSON.stringify({
+        userId,
+        nonce: randomUUID(),
+        iat: Date.now(),
+      }),
+    ).toString('base64url');
+
+    return `${payload}.${this.sign(payload)}`;
+  }
+
+  private sign(value: string) {
+    const secret = process.env.CSRF_SECRET;
+    if (!secret) {
+      throw new Error('CSRF_SECRET is required to sign OAuth state');
+    }
+
+    return createHmac('sha256', secret).update(value).digest('base64url');
   }
 }

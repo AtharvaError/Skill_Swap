@@ -1,12 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { io, type Socket } from 'socket.io-client';
-import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiBaseURL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageTransition } from '@/components/PageTransition';
@@ -23,7 +21,7 @@ type ChatMessage = {
 
 export default function ChatPage({ params }: { params: { matchId: string } }) {
   const { matchId } = params;
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
@@ -42,16 +40,15 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
     retry: false,
   });
 
-  useEffect(() => {
-    if (initialMessages) {
-      setMessages(initialMessages);
-    }
-  }, [initialMessages]);
+  const messages = useMemo(
+    () => [...(initialMessages ?? []), ...liveMessages],
+    [initialMessages, liveMessages],
+  );
 
   useEffect(() => {
     if (!matchId) return;
 
-    const socket = io('http://localhost:3001/chat', {
+    const socket = io(`${apiBaseURL}/chat`, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
     });
@@ -66,7 +63,7 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
     });
 
     socket.on('receive_message', (message: ChatMessage) => {
-      setMessages((current) => [...current, message]);
+      setLiveMessages((current) => [...current, message]);
     });
 
     socket.on('typing', ({ userId, isTyping }: { userId: string; isTyping: boolean }) => {
@@ -131,8 +128,6 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
     socketRef.current.emit('typing', { matchId, isTyping: false });
   };
 
-  const sanitizedHtml = (text: string) => ({ __html: DOMPurify.sanitize(text).replace(/\n/g, '<br/>') });
-
   return (
     <PageTransition>
       <main className="min-h-screen bg-background px-6 py-8 text-white">
@@ -195,7 +190,7 @@ export default function ChatPage({ params }: { params: { matchId: string } }) {
                         <span>{message.senderName}</span>
                         <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm text-slate-100" dangerouslySetInnerHTML={sanitizedHtml(message.content)} />
+                      <p className="whitespace-pre-wrap text-sm text-slate-100">{message.content}</p>
                     </div>
                   ))
                 )}

@@ -19,6 +19,7 @@ import { api } from '@/lib/api';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { PageTransition } from '@/components/PageTransition';
+import { getApiErrorMessage } from '@/lib/errors';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
@@ -43,8 +44,8 @@ export default function SignupPage() {
       await api.post('/auth/signup', values);
       toast.success('Account created! Redirecting...');
       router.push('/dashboard');
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to sign up');
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to sign up'));
     }
   }
 

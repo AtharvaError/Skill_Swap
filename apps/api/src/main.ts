@@ -10,7 +10,7 @@ import { doubleCsrfProtection } from './auth/csrf.config';
 
 async function bootstrap() {
   // Validate required secrets before starting
-  const requiredVars = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
+  const requiredVars = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'CSRF_SECRET'];
   for (const v of requiredVars) {
     if (!process.env[v] || process.env[v]?.startsWith('change-me')) {
       throw new Error(
