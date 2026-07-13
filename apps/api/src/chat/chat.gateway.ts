@@ -15,6 +15,7 @@ import { UnauthorizedException, UsePipes, ValidationPipe } from '@nestjs/common'
 import { JoinRoomDto } from './dto/join-room.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { TypingDto } from './dto/typing.dto';
+import { parse as parseCookies } from 'cookie';
 
 @WebSocketGateway({
   cors: {
@@ -140,11 +141,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  private extractJwtFromSocket(socket: Socket) {
-    const cookieHeader = socket.handshake.headers.cookie as string | undefined;
+  /**
+   * Extracts the JWT access token from the socket's cookie header.
+   * Uses the `cookie` package's parse() to correctly handle Base64-encoded
+   * values that contain '=' padding characters (avoids the truncation bug
+   * caused by naively splitting on '=').
+   */
+  private extractJwtFromSocket(socket: Socket): string | undefined {
+    const cookieHeader = socket.handshake.headers.cookie;
     if (!cookieHeader) return undefined;
-    const cookies = cookieHeader.split(';').map((cookie) => cookie.trim().split('='));
-    const jwtCookie = cookies.find(([name]) => name === 'jwt');
-    return jwtCookie?.[1];
+    const cookies = parseCookies(cookieHeader);
+    return cookies['jwt'];
   }
 }

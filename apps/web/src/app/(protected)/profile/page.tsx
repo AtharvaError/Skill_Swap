@@ -12,6 +12,8 @@ import { Select } from '@base-ui/react/select';
 import PageTransition, { SlideUp } from '@/components/PageTransition';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/errors';
+import { Star, Award } from 'lucide-react';
+
 
 type UserBadge = {
   earnedAt: string;
@@ -431,147 +433,153 @@ export default function ProfilePage() {
 
         <Dialog.Root open={isEditOpen} onOpenChange={setIsEditOpen} modal>
           <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/40">
-            <div className="flex items-center justify-between gap-4">
-              <Dialog.Title className="text-xl font-semibold text-white">Edit Profile</Dialog.Title>
-              <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close edit profile dialog">Close</Dialog.Close>
-            </div>
-            <Dialog.Description className="mt-2 text-sm text-slate-400">
-              Update your name, bio, college, and avatar URL.
-            </Dialog.Description>
-            <div className="mt-6 space-y-4">
-              <label htmlFor="profile-name" className="block text-sm text-slate-300">Name</label>
-              <Input id="profile-name" value={profileForm.name} onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Name" />
-              <label htmlFor="profile-bio" className="block text-sm text-slate-300">Bio</label>
-              <textarea
-                id="profile-bio"
-                value={profileForm.bio}
-                onChange={(event) => setProfileForm((prev) => ({ ...prev, bio: event.target.value }))}
-                className="min-h-[100px] w-full rounded-2xl border border-slate-800 glass p-3 text-sm text-white outline-none transition focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/20"
-                placeholder="Tell others what you offer and what you want to learn"
-              />
-              <label htmlFor="profile-college" className="block text-sm text-slate-300">College</label>
-              <Input id="profile-college" value={profileForm.college} onChange={(event) => setProfileForm((prev) => ({ ...prev, college: event.target.value }))} placeholder="College or school" />
-              <label htmlFor="profile-avatar" className="block text-sm text-slate-300">Avatar URL</label>
-              <Input id="profile-avatar" value={profileForm.avatarUrl} onChange={(event) => setProfileForm((prev) => ({ ...prev, avatarUrl: event.target.value }))} placeholder="https://..." />
-              {editError ? <p className="text-sm text-red-400" role="alert">{editError}</p> : null}
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel editing profile">Cancel</Dialog.Close>
-              <Button onClick={() => updateProfileMutation.mutate(profileForm)} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Save profile changes">
-                Save Profile
-              </Button>
-            </div>
-          </Dialog.Popup>
+          <Dialog.Portal>
+            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/40">
+              <div className="flex items-center justify-between gap-4">
+                <Dialog.Title className="text-xl font-semibold text-white">Edit Profile</Dialog.Title>
+                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close edit profile dialog">Close</Dialog.Close>
+              </div>
+              <Dialog.Description className="mt-2 text-sm text-slate-400">
+                Update your name, bio, college, and avatar URL.
+              </Dialog.Description>
+              <div className="mt-6 space-y-4">
+                <label htmlFor="profile-name" className="block text-sm text-slate-300">Name</label>
+                <Input id="profile-name" value={profileForm.name} onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Name" />
+                <label htmlFor="profile-bio" className="block text-sm text-slate-300">Bio</label>
+                <textarea
+                  id="profile-bio"
+                  value={profileForm.bio}
+                  onChange={(event) => setProfileForm((prev) => ({ ...prev, bio: event.target.value }))}
+                  className="min-h-[100px] w-full rounded-2xl border border-slate-800 glass p-3 text-sm text-white outline-none transition focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/20"
+                  placeholder="Tell others what you offer and what you want to learn"
+                />
+                <label htmlFor="profile-college" className="block text-sm text-slate-300">College</label>
+                <Input id="profile-college" value={profileForm.college} onChange={(event) => setProfileForm((prev) => ({ ...prev, college: event.target.value }))} placeholder="College or school" />
+                <label htmlFor="profile-avatar" className="block text-sm text-slate-300">Avatar URL</label>
+                <Input id="profile-avatar" value={profileForm.avatarUrl} onChange={(event) => setProfileForm((prev) => ({ ...prev, avatarUrl: event.target.value }))} placeholder="https://..." />
+                {editError ? <p className="text-sm text-red-400" role="alert">{editError}</p> : null}
+              </div>
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel editing profile">Cancel</Dialog.Close>
+                <Button onClick={() => updateProfileMutation.mutate(profileForm)} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Save profile changes">
+                  Save Profile
+                </Button>
+              </div>
+            </Dialog.Popup>
+          </Dialog.Portal>
         </Dialog.Root>
 
         <Dialog.Root open={isAddOfferedOpen} onOpenChange={setIsAddOfferedOpen} modal>
           <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
-            <div className="flex items-center justify-between gap-4">
-              <Dialog.Title className="text-xl font-semibold text-white">Add Offered Skill</Dialog.Title>
-              <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add offered skill dialog">Close</Dialog.Close>
-            </div>
-            <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill. Choose a proficiency level.</p>
-            <div className="mt-6 space-y-4">
-              <label htmlFor="offered-skill-search" className="block text-sm text-slate-300">Skill name</label>
-              <Input
-                id="offered-skill-search"
-                value={skillSearch}
-                onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
-                placeholder="e.g. Python, UI Design, Guitar"
-              />
-              <div className="grid gap-2" role="listbox" aria-label="Available skills">
-                {filteredCatalog.slice(0, 6).map((item) => (
-                  <button
-                    type="button"
-                    key={`${item.category}-${item.name}`}
-                    onClick={() => {
-                      setSelectedSkill(item);
-                      setSkillSearch(item.name);
-                      setIsCustom(false);
-                    }}
-                    role="option"
-                    aria-selected={selectedSkill?.name === item.name}
-                    className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-purple-500 bg-purple-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-purple-500'}`}
-                  >
-                    <span className="font-semibold">{item.name}</span>
-                    <span className="block text-xs text-slate-400">{item.category}</span>
-                  </button>
-                ))}
+          <Dialog.Portal>
+            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
+              <div className="flex items-center justify-between gap-4">
+                <Dialog.Title className="text-xl font-semibold text-white">Add Offered Skill</Dialog.Title>
+                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add offered skill dialog">Close</Dialog.Close>
               </div>
-              <label htmlFor="offered-proficiency" className="block text-sm text-slate-300">Proficiency</label>
-              <Select.Root value={proficiency} onValueChange={(value) => setProficiency(value ?? 'INTERMEDIATE')}>
-                <Select.Trigger className="inline-flex h-11 w-full items-center justify-between rounded-2xl border border-slate-800 glass px-4 text-sm text-white outline-none focus:border-purple-500/70 focus:ring-2 focus:ring-purple-500/20" aria-label="Select proficiency level">
-                  <Select.Value placeholder="Select proficiency" />
-                  <Select.Icon className="text-slate-300" />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Positioner>
-                    <Select.Backdrop className="rounded-3xl bg-black/30" />
-                    <Select.Popup className="mt-2 w-full min-w-[220px] rounded-3xl border border-slate-800 glass-card p-2 shadow-2xl shadow-black/50">
-                      <Select.List className="space-y-1">
-                        {proficiencyOptions.map((option) => (
-                          <Select.Item key={option.value} value={option.value} className="rounded-2xl px-3 py-3 text-sm text-white transition hover:bg-purple-600/20 data-[selected=true]:bg-purple-700 data-[selected=true]:text-white">
-                            <Select.ItemText>{option.label}</Select.ItemText>
-                          </Select.Item>
-                        ))}
-                      </Select.List>
-                    </Select.Popup>
-                  </Select.Positioner>
-                </Select.Portal>
-              </Select.Root>
-              {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding offered skill">Cancel</Dialog.Close>
-              <Button onClick={handleAddOffered} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Add offered skill">Add Skill</Button>
-            </div>
-          </Dialog.Popup>
+              <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill. Choose a proficiency level.</p>
+              <div className="mt-6 space-y-4">
+                <label htmlFor="offered-skill-search" className="block text-sm text-slate-300">Skill name</label>
+                <Input
+                  id="offered-skill-search"
+                  value={skillSearch}
+                  onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
+                  placeholder="e.g. Python, UI Design, Guitar"
+                />
+                <div className="grid gap-2" role="listbox" aria-label="Available skills">
+                  {filteredCatalog.slice(0, 6).map((item) => (
+                    <button
+                      type="button"
+                      key={`${item.category}-${item.name}`}
+                      onClick={() => {
+                        setSelectedSkill(item);
+                        setSkillSearch(item.name);
+                        setIsCustom(false);
+                      }}
+                      role="option"
+                      aria-selected={selectedSkill?.name === item.name}
+                      className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-purple-500 bg-purple-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-purple-500'}`}
+                    >
+                      <span className="font-semibold">{item.name}</span>
+                      <span className="block text-xs text-slate-400">{item.category}</span>
+                    </button>
+                  ))}
+                </div>
+                <label htmlFor="offered-proficiency" className="block text-sm text-slate-300">Proficiency</label>
+                <Select.Root value={proficiency} onValueChange={(value) => setProficiency(value ?? 'INTERMEDIATE')}>
+                  <Select.Trigger className="inline-flex h-11 w-full items-center justify-between rounded-2xl border border-slate-800 glass px-4 text-sm text-white outline-none focus:border-purple-500/70 focus:ring-2 focus:ring-purple-500/20" aria-label="Select proficiency level">
+                    <Select.Value placeholder="Select proficiency" />
+                    <Select.Icon className="text-slate-300" />
+                  </Select.Trigger>
+                  <Select.Portal>
+                    <Select.Positioner>
+                      <Select.Backdrop className="rounded-3xl bg-black/30" />
+                      <Select.Popup className="mt-2 w-full min-w-[220px] rounded-3xl border border-slate-800 glass-card p-2 shadow-2xl shadow-black/50">
+                        <Select.List className="space-y-1">
+                          {proficiencyOptions.map((option) => (
+                            <Select.Item key={option.value} value={option.value} className="rounded-2xl px-3 py-3 text-sm text-white transition hover:bg-purple-600/20 data-[selected=true]:bg-purple-700 data-[selected=true]:text-white">
+                              <Select.ItemText>{option.label}</Select.ItemText>
+                            </Select.Item>
+                          ))}
+                        </Select.List>
+                      </Select.Popup>
+                    </Select.Positioner>
+                  </Select.Portal>
+                </Select.Root>
+                {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
+              </div>
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding offered skill">Cancel</Dialog.Close>
+                <Button onClick={handleAddOffered} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Add offered skill">Add Skill</Button>
+              </div>
+            </Dialog.Popup>
+          </Dialog.Portal>
         </Dialog.Root>
 
         <Dialog.Root open={isAddWantedOpen} onOpenChange={setIsAddWantedOpen} modal>
           <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
-            <div className="flex items-center justify-between gap-4">
-              <Dialog.Title className="text-xl font-semibold text-white">Add Wanted Skill</Dialog.Title>
-              <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add wanted skill dialog">Close</Dialog.Close>
-            </div>
-            <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill to add to your wanted list.</p>
-            <div className="mt-6 space-y-4">
-              <label htmlFor="wanted-skill-search" className="block text-sm text-slate-300">Skill name</label>
-              <Input
-                id="wanted-skill-search"
-                value={skillSearch}
-                onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
-                placeholder="e.g. Public Speaking, Figma, Piano"
-              />
-              <div className="grid gap-2" role="listbox" aria-label="Available skills">
-                {filteredCatalog.slice(0, 6).map((item) => (
-                  <button
-                    type="button"
-                    key={`${item.category}-${item.name}`}
-                    onClick={() => {
-                      setSelectedSkill(item);
-                      setSkillSearch(item.name);
-                      setIsCustom(false);
-                    }}
-                    role="option"
-                    aria-selected={selectedSkill?.name === item.name}
-                    className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-emerald-500 bg-emerald-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-emerald-500'}`}
-                  >
-                    <span className="font-semibold">{item.name}</span>
-                    <span className="block text-xs text-slate-400">{item.category}</span>
-                  </button>
-                ))}
+          <Dialog.Portal>
+            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
+              <div className="flex items-center justify-between gap-4">
+                <Dialog.Title className="text-xl font-semibold text-white">Add Wanted Skill</Dialog.Title>
+                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add wanted skill dialog">Close</Dialog.Close>
               </div>
-              {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding wanted skill">Cancel</Dialog.Close>
-              <Button onClick={handleAddWanted} className="bg-emerald-600 text-white hover:bg-emerald-500" aria-label="Add wanted skill">Add Skill</Button>
-            </div>
-          </Dialog.Popup>
+              <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill to add to your wanted list.</p>
+              <div className="mt-6 space-y-4">
+                <label htmlFor="wanted-skill-search" className="block text-sm text-slate-300">Skill name</label>
+                <Input
+                  id="wanted-skill-search"
+                  value={skillSearch}
+                  onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
+                  placeholder="e.g. Public Speaking, Figma, Piano"
+                />
+                <div className="grid gap-2" role="listbox" aria-label="Available skills">
+                  {filteredCatalog.slice(0, 6).map((item) => (
+                    <button
+                      type="button"
+                      key={`${item.category}-${item.name}`}
+                      onClick={() => {
+                        setSelectedSkill(item);
+                        setSkillSearch(item.name);
+                        setIsCustom(false);
+                      }}
+                      role="option"
+                      aria-selected={selectedSkill?.name === item.name}
+                      className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-emerald-500 bg-emerald-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-emerald-500'}`}
+                    >
+                      <span className="font-semibold">{item.name}</span>
+                      <span className="block text-xs text-slate-400">{item.category}</span>
+                    </button>
+                  ))}
+                </div>
+                {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
+              </div>
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding wanted skill">Cancel</Dialog.Close>
+                <Button onClick={handleAddWanted} className="bg-emerald-600 text-white hover:bg-emerald-500" aria-label="Add wanted skill">Add Skill</Button>
+              </div>
+            </Dialog.Popup>
+          </Dialog.Portal>
         </Dialog.Root>
       </main>
     </PageTransition>

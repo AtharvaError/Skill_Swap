@@ -1,5 +1,9 @@
 import { config } from 'dotenv';
-config();
+import { resolve } from 'path';
+// Explicitly resolve .env relative to this file so it works from any cwd
+// (monorepo root run or direct apps/api run, both src/ and dist/)
+config({ path: resolve(__dirname, '../.env') });
+config(); // fallback: also load process.cwd()/.env if the above doesn't match
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -22,7 +26,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());
-  
+
   // CORS configuration from environment variables
   const allowedOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
   app.enableCors({
