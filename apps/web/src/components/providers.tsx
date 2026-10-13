@@ -2,18 +2,20 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-import { AnimatePresence } from 'framer-motion';
-import { usePathname } from 'next/navigation';
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-  const pathname = usePathname();
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AnimatePresence mode="wait" initial={false}>
-        <div key={pathname}>{children}</div>
-      </AnimatePresence>
-    </QueryClientProvider>
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // Navigating between pages reuses data fetched a moment ago.
+            staleTime: 10000,
+            retry: 1,
+          },
+        },
+      }),
   );
+
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

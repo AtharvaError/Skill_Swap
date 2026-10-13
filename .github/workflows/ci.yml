@@ -23,12 +23,25 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            apps/*/package-lock.json
+            packages/*/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: apps/api
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/skillswap"
+
       - name: Lint all workspaces
         run: npm run lint
+
+      - name: Test API
+        run: npm test
 
       - name: Build API
         run: npm run build --workspace=apps/api

@@ -1,11 +1,27 @@
-import { Body, Controller, Get, Post, Res, Req, UnauthorizedException } from '@nestjs/common';
-import type { Response, Request } from 'express';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { JwtService } from '@nestjs/jwt';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import { JwtService } from '@nestjs/jwt';
-import { Throttle } from '@nestjs/throttler';
 import { generateToken } from './csrf.config';
+import {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  accessCookieOptions,
+  refreshCookieOptions,
+} from './cookie.config';
+import type { JwtPayload } from './current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -15,100 +31,99 @@ export class AuthController {
   ) {}
 
   @Get('csrf')
-  async getCsrfToken(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = generateToken(req, res);
-    return { csrfToken: token };
+  getCsrfToken(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return { csrfToken: generateToken(req, res) };
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('signup')
-  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
+  async signup(
+    @Body() dto: SignupDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const tokens = await this.authService.signup(dto);
     this.setCookies(res, tokens.access_token, tokens.refresh_token);
     return { message: 'Signup successful' };
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200)
   @Post('login')
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const tokens = await this.authService.login(dto);
     this.setCookies(res, tokens.access_token, tokens.refresh_token);
     return { message: 'Login successful' };
   }
 
+  @HttpCode(200)
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies?.['jwt_refresh'];
+    const refreshToken = this.readRefreshToken(req);
     if (refreshToken) {
       try {
-        const payload = await this.jwtService.verifyAsync(refreshToken, {
-          secret: process.env.JWT_REFRESH_SECRET!,
-        });
+        const payload = await this.jwtService.verifyAsync<JwtPayload>(
+          refreshToken,
+          { secret: process.env.JWT_REFRESH_SECRET! },
+        );
         await this.authService.logout(payload.sub);
-      } catch (err) {
-        // Ignore and just clear cookies
+      } catch {
+        // An invalid or expired refresh token still gets its cookies cleared.
       }
     }
 
-    res.clearCookie('jwt', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-    });
-    res.clearCookie('jwt_refresh', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/auth',
-    });
+    this.clearCookies(res);
     return { message: 'Logout successful' };
   }
 
+  @HttpCode(200)
   @Post('refresh')
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies?.['jwt_refresh'];
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const refreshToken = this.readRefreshToken(req);
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token provided');
     }
     try {
-      const payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET!,
-      });
-      const tokens = await this.authService.refreshTokens(payload.sub, refreshToken);
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        refreshToken,
+        { secret: process.env.JWT_REFRESH_SECRET! },
+      );
+      const tokens = await this.authService.refreshTokens(
+        payload.sub,
+        refreshToken,
+      );
       this.setCookies(res, tokens.access_token, tokens.refresh_token);
       return { message: 'Tokens refreshed' };
-    } catch (err) {
-      res.clearCookie('jwt', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-      });
-      res.clearCookie('jwt_refresh', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/auth',
-      });
+    } catch {
+      this.clearCookies(res);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
 
+  private readRefreshToken(req: Request): string | undefined {
+    return (req.cookies as Record<string, string> | undefined)?.[
+      REFRESH_COOKIE
+    ];
+  }
+
   private setCookies(res: Response, accessToken: string, refreshToken: string) {
-    res.cookie('jwt', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+    res.cookie(ACCESS_COOKIE, accessToken, {
+      ...accessCookieOptions(),
       maxAge: 15 * 60 * 1000, // 15 minutes
-      path: '/',
     });
-    res.cookie('jwt_refresh', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+    res.cookie(REFRESH_COOKIE, refreshToken, {
+      ...refreshCookieOptions(),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/auth',
     });
+  }
+
+  private clearCookies(res: Response) {
+    res.clearCookie(ACCESS_COOKIE, accessCookieOptions());
+    res.clearCookie(REFRESH_COOKIE, refreshCookieOptions());
   }
 }

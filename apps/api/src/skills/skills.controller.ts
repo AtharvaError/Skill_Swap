@@ -3,18 +3,17 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
-  Req,
   UseGuards,
-  HttpCode,
 } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
 import { Throttle } from '@nestjs/throttler';
+import { AuthGuard } from '../auth/auth.guard';
+import { UserId } from '../auth/current-user.decorator';
 import { SkillsService } from './skills.service';
 import { CreateOfferedSkillDto } from './dto/create-offered-skill.dto';
 import { CreateWantedSkillDto } from './dto/create-wanted-skill.dto';
-import type { Request } from 'express';
 
 @Controller('skills')
 export class SkillsController {
@@ -27,8 +26,7 @@ export class SkillsController {
 
   @UseGuards(AuthGuard)
   @Get('offered')
-  async getOffered(@Req() req: Request & { user?: any }) {
-    const userId = req.user.sub;
+  async getOffered(@UserId() userId: string) {
     const offered = await this.skillsService.listOffered(userId);
     return offered.map((item) => ({
       skillId: item.skillId,
@@ -41,21 +39,23 @@ export class SkillsController {
   @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('offered')
-  addOffered(@Req() req: Request & { user?: any }, @Body() dto: CreateOfferedSkillDto) {
-    return this.skillsService.addOffered(req.user.sub, dto);
+  addOffered(@UserId() userId: string, @Body() dto: CreateOfferedSkillDto) {
+    return this.skillsService.addOffered(userId, dto);
   }
 
   @UseGuards(AuthGuard)
   @Delete('offered/:skillId')
   @HttpCode(204)
-  async removeOffered(@Req() req: Request & { user?: any }, @Param('skillId') skillId: string) {
-    await this.skillsService.removeOffered(req.user.sub, skillId);
+  async removeOffered(
+    @UserId() userId: string,
+    @Param('skillId') skillId: string,
+  ) {
+    await this.skillsService.removeOffered(userId, skillId);
   }
 
   @UseGuards(AuthGuard)
   @Get('wanted')
-  async getWanted(@Req() req: Request & { user?: any }) {
-    const userId = req.user.sub;
+  async getWanted(@UserId() userId: string) {
     const wanted = await this.skillsService.listWanted(userId);
     return wanted.map((item) => ({
       skillId: item.skillId,
@@ -67,14 +67,17 @@ export class SkillsController {
   @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('wanted')
-  addWanted(@Req() req: Request & { user?: any }, @Body() dto: CreateWantedSkillDto) {
-    return this.skillsService.addWanted(req.user.sub, dto);
+  addWanted(@UserId() userId: string, @Body() dto: CreateWantedSkillDto) {
+    return this.skillsService.addWanted(userId, dto);
   }
 
   @UseGuards(AuthGuard)
   @Delete('wanted/:skillId')
   @HttpCode(204)
-  async removeWanted(@Req() req: Request & { user?: any }, @Param('skillId') skillId: string) {
-    await this.skillsService.removeWanted(req.user.sub, skillId);
+  async removeWanted(
+    @UserId() userId: string,
+    @Param('skillId') skillId: string,
+  ) {
+    await this.skillsService.removeWanted(userId, skillId);
   }
 }

@@ -1,4 +1,10 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export enum SkillProficiency {
   BEGINNER = 'BEGINNER',
@@ -9,12 +15,14 @@ export enum SkillProficiency {
 export class CreateOfferedSkillDto {
   @IsString()
   @IsNotEmpty()
-  name: string;
+  @MaxLength(60)
+  name!: string;
 
   @IsString()
+  @MaxLength(60)
   @IsOptional()
   category?: string;
 
   @IsEnum(SkillProficiency)
-  proficiency: SkillProficiency;
+  proficiency!: SkillProficiency;
 }

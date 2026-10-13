@@ -1,85 +1,188 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { google } from 'googleapis';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+
+export interface CalendarEventInput {
+  summary: string;
+  description: string;
+  start: Date;
+  end: Date;
+  attendees: { email: string; displayName: string }[];
+  requestId: string;
+}
+
+export interface CalendarEventResult {
+  eventId: string | null;
+  htmlLink: string | null;
+  meetLink: string | null;
+}
 
 @Injectable()
 export class CalendarService {
+  private readonly logger = new Logger(CalendarService.name);
+
   constructor(private prisma: PrismaService) {}
 
-  private getOAuth2Client() {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  /** Google Calendar is optional; it is only offered when OAuth is set up. */
+  isConfigured(): boolean {
+    return Boolean(
+      process.env.GOOGLE_CLIENT_ID &&
+      process.env.GOOGLE_CLIENT_SECRET &&
+      process.env.GOOGLE_OAUTH_REDIRECT_URI,
+    );
+  }
 
-    if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error('Google OAuth configuration is missing');
+  private getOAuth2Client() {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Google Calendar integration is not configured on this server',
+      );
     }
 
-    return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+    return new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_OAUTH_REDIRECT_URI,
+    );
   }
 
   getAuthorizationUrl(userId: string) {
     const oauth2Client = this.getOAuth2Client();
-    const scopes = [
-      'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/userinfo.email',
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'openid',
-    ];
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
-      scope: scopes,
+      scope: ['https://www.googleapis.com/auth/calendar.events'],
       state: this.createSignedState(userId),
     });
   }
 
-  verifyState(state: string): { userId: string; nonce?: string; iat: number } {
+  verifyState(state: string): { userId: string } {
     const [encodedPayload, signature] = state.split('.');
     if (!encodedPayload || !signature) {
-      throw new Error('Invalid OAuth state');
+      throw new BadRequestException('Invalid OAuth state');
     }
 
-    const expectedSignature = this.sign(encodedPayload);
     const signatureBuffer = Buffer.from(signature, 'base64url');
-    const expectedBuffer = Buffer.from(expectedSignature, 'base64url');
+    const expectedBuffer = Buffer.from(this.sign(encodedPayload), 'base64url');
 
     if (
       signatureBuffer.length !== expectedBuffer.length ||
       !timingSafeEqual(signatureBuffer, expectedBuffer)
     ) {
-      throw new Error('Invalid OAuth state signature');
+      throw new BadRequestException('Invalid OAuth state signature');
     }
 
-    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
-      userId?: string;
-      nonce?: string;
-      iat?: number;
-    };
-
-    if (!payload.userId || !payload.iat || Date.now() - payload.iat > 10 * 60 * 1000) {
-      throw new Error('Expired OAuth state');
+    let payload: { userId?: string; iat?: number };
+    try {
+      payload = JSON.parse(
+        Buffer.from(encodedPayload, 'base64url').toString('utf8'),
+      ) as { userId?: string; iat?: number };
+    } catch {
+      throw new BadRequestException('Invalid OAuth state');
     }
 
-    return { userId: payload.userId, nonce: payload.nonce, iat: payload.iat };
+    if (
+      !payload.userId ||
+      !payload.iat ||
+      Date.now() - payload.iat > 10 * 60 * 1000
+    ) {
+      throw new BadRequestException('Expired OAuth state');
+    }
+
+    return { userId: payload.userId };
   }
 
-  async exchangeCode(code: string) {
+  async exchangeCode(code: string): Promise<string> {
     const oauth2Client = this.getOAuth2Client();
-    const tokenResponse = await oauth2Client.getToken(code);
-    const tokens = tokenResponse.tokens;
+    const { tokens } = await oauth2Client.getToken(code);
     if (!tokens.refresh_token) {
-      throw new Error('No refresh token returned from Google OAuth');
+      throw new BadRequestException(
+        'No refresh token returned from Google OAuth',
+      );
     }
-    return tokens;
+    return tokens.refresh_token;
   }
 
-  async saveRefreshToken(userId: string, refreshToken: string) {
-    return this.prisma.user.update({
+  async saveRefreshToken(userId: string, refreshToken: string | null) {
+    await this.prisma.user.update({
       where: { id: userId },
       data: { googleRefreshToken: refreshToken },
     });
+  }
+
+  /**
+   * Creates a calendar event with a Meet link on the user's primary calendar.
+   * Returns null instead of throwing: a calendar outage must never block
+   * scheduling a session.
+   */
+  async createEvent(
+    refreshToken: string,
+    input: CalendarEventInput,
+  ): Promise<CalendarEventResult | null> {
+    if (!this.isConfigured()) return null;
+
+    try {
+      const oauth2Client = this.getOAuth2Client();
+      oauth2Client.setCredentials({ refresh_token: refreshToken });
+      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+      const { data } = await calendar.events.insert({
+        calendarId: 'primary',
+        conferenceDataVersion: 1,
+        requestBody: {
+          summary: input.summary,
+          description: input.description,
+          start: { dateTime: input.start.toISOString(), timeZone: 'UTC' },
+          end: { dateTime: input.end.toISOString(), timeZone: 'UTC' },
+          conferenceData: { createRequest: { requestId: input.requestId } },
+          attendees: input.attendees,
+          reminders: {
+            useDefault: false,
+            overrides: [
+              { method: 'popup', minutes: 30 },
+              { method: 'email', minutes: 60 },
+            ],
+          },
+        },
+      });
+
+      return {
+        eventId: data.id ?? null,
+        htmlLink: data.htmlLink ?? null,
+        meetLink:
+          data.hangoutLink ??
+          data.conferenceData?.entryPoints?.find(
+            (entry) => entry.entryPointType === 'video',
+          )?.uri ??
+          null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to create Google Calendar event: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  async deleteEvent(refreshToken: string, eventId: string): Promise<void> {
+    if (!this.isConfigured()) return;
+
+    try {
+      const oauth2Client = this.getOAuth2Client();
+      oauth2Client.setCredentials({ refresh_token: refreshToken });
+      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+      await calendar.events.delete({ calendarId: 'primary', eventId });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to delete Google Calendar event ${eventId}: ${(error as Error).message}`,
+      );
+    }
   }
 
   private createSignedState(userId: string) {

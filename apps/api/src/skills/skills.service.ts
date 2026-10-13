@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateOfferedSkillDto, SkillProficiency } from './dto/create-offered-skill.dto';
+import { CreateOfferedSkillDto } from './dto/create-offered-skill.dto';
 import { CreateWantedSkillDto } from './dto/create-wanted-skill.dto';
 
 export const SKILL_CATALOG = [
@@ -37,26 +38,49 @@ export class SkillsService {
     }, {});
   }
 
+  /**
+   * Skills are matched by name, so "python" and "Python" must resolve to the
+   * same row. Catalog skills keep their canonical spelling and category.
+   */
   async getOrCreateSkill(name: string, category?: string) {
-    const normalizedName = name.trim();
+    const normalizedName = name.trim().replace(/\s+/g, ' ');
     if (!normalizedName) {
-      throw new Error('Skill name is required');
+      throw new BadRequestException('Skill name is required');
     }
 
-    let skill = await this.prisma.skill.findUnique({
-      where: { name: normalizedName },
+    const existing = await this.prisma.skill.findFirst({
+      where: { name: { equals: normalizedName, mode: 'insensitive' } },
     });
+    if (existing) return existing;
 
-    if (!skill) {
-      skill = await this.prisma.skill.create({
+    const catalogGroup = SKILL_CATALOG.find((group) =>
+      group.items.some(
+        (item) => item.toLowerCase() === normalizedName.toLowerCase(),
+      ),
+    );
+    const catalogName = catalogGroup?.items.find(
+      (item) => item.toLowerCase() === normalizedName.toLowerCase(),
+    );
+
+    try {
+      return await this.prisma.skill.create({
         data: {
-          name: normalizedName,
-          category: category?.trim() || 'Custom',
+          name: catalogName ?? normalizedName,
+          category: catalogGroup?.category ?? (category?.trim() || 'Custom'),
         },
       });
+    } catch (error) {
+      // Two users adding the same new skill at once: the loser reads the row.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return this.prisma.skill.findFirstOrThrow({
+          where: { name: { equals: normalizedName, mode: 'insensitive' } },
+        });
+      }
+      throw error;
     }
-
-    return skill;
   }
 
   async listOffered(userId: string) {

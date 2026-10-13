@@ -2,17 +2,25 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from './prisma.service';
 
 describe('PrismaService', () => {
-  let service: PrismaService;
+  const originalUrl = process.env.DATABASE_URL;
 
-  beforeEach(async () => {
+  afterEach(() => {
+    process.env.DATABASE_URL = originalUrl;
+  });
+
+  it('should be defined when DATABASE_URL is set', async () => {
+    // The pg adapter connects lazily, so no database is needed here.
+    process.env.DATABASE_URL =
+      'postgresql://user:password@localhost:5432/skillswap_test';
     const module: TestingModule = await Test.createTestingModule({
       providers: [PrismaService],
     }).compile();
 
-    service = module.get<PrismaService>(PrismaService);
+    expect(module.get<PrismaService>(PrismaService)).toBeDefined();
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
+  it('should refuse to start without DATABASE_URL', () => {
+    delete process.env.DATABASE_URL;
+    expect(() => new PrismaService()).toThrow('DATABASE_URL is not set');
   });
 });

@@ -1,43 +1,48 @@
+# Build from the monorepo root so the workspace lockfile is available:
+#   docker build -f apps/api/Dockerfile -t skillswap-api .
+
 # ---- Build stage ----
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy monorepo config files
+# Every workspace manifest must be present for the lockfile to be in sync,
+# but only the API's dependencies are installed.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY apps/web/package.json ./apps/web/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 
-# Install all dependencies (including devDependencies for build)
-RUN npm ci
+RUN npm ci --workspace=apps/api --include-workspace-root \
+  && mkdir -p apps/api/node_modules
 
-# Copy source code
 COPY apps/api ./apps/api
-COPY packages/shared ./packages/shared
 
 # Generate Prisma client and build
 WORKDIR /app/apps/api
-RUN npx prisma generate
 RUN npm run build
 
 # ---- Production stage ----
 FROM node:20-alpine AS runner
 
+ENV NODE_ENV=production
 WORKDIR /app
 
-# Copy only production artifacts
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/package.json ./package.json
-COPY --from=builder /app/apps/api/prisma ./prisma
-COPY --from=builder /app/apps/api/node_modules/.prisma ./node_modules/.prisma
+# Keep the workspace layout: dependencies are hoisted to the root
+# node_modules, with a few nested under apps/api/node_modules.
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
+COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Expose the API port
+WORKDIR /app/apps/api
+
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3001}/health || exit 1
 
-# Start the NestJS API in production mode
-CMD ["node", "dist/main"]
+# Apply any pending migrations, then start the API.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]

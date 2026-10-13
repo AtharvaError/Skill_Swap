@@ -1,10 +1,19 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { AuthGuard } from '../auth/auth.guard';
+import { UserId } from '../auth/current-user.decorator';
 import { SessionsService } from './sessions.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
-import type { Request } from 'express';
 
 @Controller('sessions')
 @UseGuards(AuthGuard)
@@ -13,41 +22,48 @@ export class SessionsController {
 
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post()
-  async createSession(
-    @Req() req: Request & { user?: any },
-    @Body() dto: CreateSessionDto,
-  ) {
-    return this.sessionsService.createSession(req.user.sub, dto);
+  createSession(@UserId() userId: string, @Body() dto: CreateSessionDto) {
+    return this.sessionsService.createSession(userId, dto);
   }
 
   @Get()
-  async getSessions(@Req() req: Request & { user?: any }) {
-    return this.sessionsService.listUserSessions(req.user.sub);
+  getSessions(@UserId() userId: string) {
+    return this.sessionsService.listUserSessions(userId);
   }
 
   @Get(':id')
-  async getSession(
-    @Req() req: Request & { user?: any },
-    @Param('id') sessionId: string,
+  getSession(
+    @UserId() userId: string,
+    @Param('id', ParseUUIDPipe) sessionId: string,
   ) {
-    return this.sessionsService.getSession(req.user.sub, sessionId);
+    return this.sessionsService.getSession(userId, sessionId);
   }
 
+  @HttpCode(200)
   @Post(':id/complete')
-  async completeSession(
-    @Req() req: Request & { user?: any },
-    @Param('id') sessionId: string,
+  completeSession(
+    @UserId() userId: string,
+    @Param('id', ParseUUIDPipe) sessionId: string,
   ) {
-    return this.sessionsService.completeSession(req.user.sub, sessionId);
+    return this.sessionsService.completeSession(userId, sessionId);
+  }
+
+  @HttpCode(200)
+  @Post(':id/cancel')
+  cancelSession(
+    @UserId() userId: string,
+    @Param('id', ParseUUIDPipe) sessionId: string,
+  ) {
+    return this.sessionsService.cancelSession(userId, sessionId);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post(':id/review')
-  async submitReview(
-    @Req() req: Request & { user?: any },
-    @Param('id') sessionId: string,
+  submitReview(
+    @UserId() userId: string,
+    @Param('id', ParseUUIDPipe) sessionId: string,
     @Body() dto: CreateReviewDto,
   ) {
-    return this.sessionsService.submitReview(req.user.sub, sessionId, dto);
+    return this.sessionsService.submitReview(userId, sessionId, dto);
   }
 }

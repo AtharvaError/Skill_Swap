@@ -11,3 +11,4 @@ coverage/
 .env.production.local
 *.log
 .DS_Store
+.neon

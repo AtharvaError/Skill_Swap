@@ -1,49 +1,62 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { userSummarySelect } from '../users/user-summary';
+import { computeMatchScore } from './match-score';
 
-interface MatchScoreBreakdown {
-  skillOverlap: number;
-  availabilityOverlap: number;
-  ratingScore: number;
-  experienceScore: number;
-}
+const MAX_SUGGESTIONS = 30;
+const MESSAGE_HISTORY_LIMIT = 200;
 
-interface OverlappingSkill {
-  name: string;
-  category: string;
-}
+export type ConnectionDirection = 'outgoing' | 'incoming';
 
 @Injectable()
 export class MatchesService {
   constructor(private prisma: PrismaService) {}
 
-  private normalizeRating(ratingAvg: number | null | undefined) {
-    return Math.min(1, Math.max(0, (ratingAvg ?? 0) / 5));
+  private involving(userId: string) {
+    return { OR: [{ userAId: userId }, { userBId: userId }] };
   }
 
-  private computeAvailabilityOverlap(
-    currentOfferedCategories: Set<string>,
-    currentWantedCategories: Set<string>,
-    otherOfferedCategories: Set<string>,
-    otherWantedCategories: Set<string>,
-  ) {
-    const overlapOfferedToWanted = [...currentOfferedCategories].filter((category) => otherWantedCategories.has(category)).length;
-    const overlapWantedToOffered = [...currentWantedCategories].filter((category) => otherOfferedCategories.has(category)).length;
-    const totalCategories = Math.max(
-      currentOfferedCategories.size + currentWantedCategories.size,
-      otherOfferedCategories.size + otherWantedCategories.size,
-      1,
-    );
+  /**
+   * Loads a match the user takes part in. Missing and foreign matches both
+   * give 404 so match ids can't be probed.
+   */
+  async getParticipantMatch(userId: string, matchId: string) {
+    const match = await this.prisma.match.findUnique({
+      where: { id: matchId },
+      select: {
+        id: true,
+        status: true,
+        userAId: true,
+        userBId: true,
+        createdAt: true,
+        userA: { select: userSummarySelect },
+        userB: { select: userSummarySelect },
+      },
+    });
 
-    return (overlapOfferedToWanted + overlapWantedToOffered) / totalCategories;
+    if (!match || (match.userAId !== userId && match.userBId !== userId)) {
+      throw new NotFoundException('Match not found');
+    }
+    return match;
   }
 
-  async getTopMatches(userId: string) {
+  /** Ranked swap partners for the user, optionally filtered by a search. */
+  async getSuggestions(userId: string, search?: string) {
+    const skillSelect = {
+      select: { skill: { select: { name: true, category: true } } },
+    };
+
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
-        offeredSkills: { include: { skill: true } },
-        wantedSkills: { include: { skill: true } },
+      select: {
+        availability: true,
+        offeredSkills: skillSelect,
+        wantedSkills: skillSelect,
       },
     });
 
@@ -51,140 +64,139 @@ export class MatchesService {
       throw new NotFoundException('Current user not found');
     }
 
-    const currentOfferedSkills = currentUser.offeredSkills.map((item) => item.skill);
-    const currentWantedSkills = currentUser.wantedSkills.map((item) => item.skill);
-    const currentOfferedNames = new Set(currentOfferedSkills.map((skill) => skill.name));
-    const currentWantedNames = new Set(currentWantedSkills.map((skill) => skill.name));
-    const currentOfferedCategories = new Set(currentOfferedSkills.map((skill) => skill.category));
-    const currentWantedCategories = new Set(currentWantedSkills.map((skill) => skill.category));
-
-    const otherUsers = await this.prisma.user.findMany({
-      where: { id: { not: userId } },
+    const completedCount = {
       select: {
-        id: true,
-        name: true,
-        avatarUrl: true,
-        college: true,
-        ratingAvg: true,
-        offeredSkills: { include: { skill: true } },
-        wantedSkills: { include: { skill: true } },
-        matchesAsA: {
-          select: {
-            sessions: {
-              where: { status: 'COMPLETED' },
-              select: { id: true },
-            },
+        _count: { select: { sessions: { where: { status: 'COMPLETED' } } } },
+      },
+    } as const;
+
+    const [otherUsers, matchRecords] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { not: userId } },
+        select: {
+          ...userSummarySelect,
+          bio: true,
+          availability: true,
+          offeredSkills: skillSelect,
+          wantedSkills: skillSelect,
+          matchesAsA: completedCount,
+          matchesAsB: completedCount,
+          _count: { select: { reviewsGotten: true } },
+        },
+      }),
+      this.prisma.match.findMany({
+        where: this.involving(userId),
+        select: { id: true, userAId: true, userBId: true, status: true },
+      }),
+    ]);
+
+    const matchByOtherId = new Map(
+      matchRecords.map((match) => [
+        match.userAId === userId ? match.userBId : match.userAId,
+        match,
+      ]),
+    );
+
+    const candidates = otherUsers.map((other) => ({
+      ...other,
+      offered: other.offeredSkills.map((item) => item.skill),
+      wanted: other.wantedSkills.map((item) => item.skill),
+      completedSessions: [...other.matchesAsA, ...other.matchesAsB].reduce(
+        (total, match) => total + match._count.sessions,
+        0,
+      ),
+    }));
+
+    const maxCompletedSessions = Math.max(
+      0,
+      ...candidates.map((candidate) => candidate.completedSessions),
+    );
+
+    const me = {
+      offered: currentUser.offeredSkills.map((item) => item.skill),
+      wanted: currentUser.wantedSkills.map((item) => item.skill),
+      availability: currentUser.availability,
+    };
+
+    const query = search?.trim().toLowerCase();
+
+    return candidates
+      .filter((candidate) => {
+        if (!query) return true;
+        return [
+          candidate.name,
+          candidate.college ?? '',
+          ...candidate.offered.flatMap((s) => [s.name, s.category]),
+          ...candidate.wanted.flatMap((s) => [s.name, s.category]),
+        ].some((value) => value.toLowerCase().includes(query));
+      })
+      .map((candidate) => {
+        const result = computeMatchScore(
+          me,
+          {
+            offered: candidate.offered,
+            wanted: candidate.wanted,
+            availability: candidate.availability,
+            ratingAvg: candidate.ratingAvg,
+            reviewCount: candidate._count.reviewsGotten,
+            completedSessions: candidate.completedSessions,
           },
-        },
-        matchesAsB: {
-          select: {
-            sessions: {
-              where: { status: 'COMPLETED' },
-              select: { id: true },
-            },
+          maxCompletedSessions,
+        );
+        const match = matchByOtherId.get(candidate.id);
+        const connected = match && match.status !== 'REJECTED' ? match : null;
+
+        return {
+          userId: candidate.id,
+          name: candidate.name,
+          avatarUrl: candidate.avatarUrl,
+          college: candidate.college,
+          bio: candidate.bio,
+          ratingAvg: candidate.ratingAvg ?? 0,
+          reviewCount: candidate._count.reviewsGotten,
+          completedSessions: candidate.completedSessions,
+          offeredSkills: candidate.offered,
+          wantedSkills: candidate.wanted,
+          matchId: connected?.id ?? null,
+          connectionStatus: connected?.status ?? null,
+          connectionDirection: connected
+            ? connected.userAId === userId
+              ? 'outgoing'
+              : 'incoming'
+            : null,
+          isConnected: connected?.status === 'ACCEPTED',
+          score: result.score,
+          matchPercent: result.matchPercent,
+          scoreBreakdown: result.breakdown,
+          sharedAvailability: result.sharedAvailability,
+          overlappingSkills: {
+            wantedByMe: result.wantedByMe,
+            offeredByMe: result.offeredByMe,
           },
-        },
-      },
-    });
-
-    const matchRecords = await this.prisma.match.findMany({
-      where: {
-        OR: [{ userAId: userId }, { userBId: userId }],
-      },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        userAId: true,
-        userBId: true,
-        status: true,
-      },
-    });
-
-    const matchByOtherId = new Map<string, { id: string; status: string }>();
-    for (const match of matchRecords) {
-      const otherId = match.userAId === userId ? match.userBId : match.userAId;
-      if (!matchByOtherId.has(otherId)) {
-        matchByOtherId.set(otherId, { id: match.id, status: match.status });
-      }
-    }
-
-    const otherUsersWithExperience = otherUsers.map((other) => {
-      const completedSessions =
-        other.matchesAsA.reduce((count, match) => count + match.sessions.length, 0) +
-        other.matchesAsB.reduce((count, match) => count + match.sessions.length, 0);
-
-      return {
-        ...other,
-        completedSessions,
-      };
-    });
-
-    const maxCompletedSessions = Math.max(...otherUsersWithExperience.map((user) => user.completedSessions), 1);
-
-    const results = otherUsersWithExperience.map((other) => {
-      const otherOfferedSkills = other.offeredSkills.map((item) => item.skill);
-      const otherWantedSkills = other.wantedSkills.map((item) => item.skill);
-      const otherOfferedNames = new Set(otherOfferedSkills.map((skill) => skill.name));
-      const otherWantedNames = new Set(otherWantedSkills.map((skill) => skill.name));
-      const otherOfferedCategories = new Set(otherOfferedSkills.map((skill) => skill.category));
-      const otherWantedCategories = new Set(otherWantedSkills.map((skill) => skill.category));
-
-      const matchedWantedByUser = otherOfferedSkills.filter((skill) => currentWantedNames.has(skill.name));
-      const matchedOfferedByUser = otherWantedSkills.filter((skill) => currentOfferedNames.has(skill.name));
-      const skillOverlap = matchedWantedByUser.length + matchedOfferedByUser.length;
-      const availabilityOverlap = this.computeAvailabilityOverlap(
-        currentOfferedCategories,
-        currentWantedCategories,
-        otherOfferedCategories,
-        otherWantedCategories,
-      );
-      const ratingScore = this.normalizeRating(other.ratingAvg);
-      const experienceScore = maxCompletedSessions > 0 ? other.completedSessions / maxCompletedSessions : 0;
-      const score =
-        skillOverlap * 0.5 +
-        availabilityOverlap * 0.2 +
-        ratingScore * 0.15 +
-        experienceScore * 0.15;
-      const matchRecord = matchByOtherId.get(other.id);
-
-      return {
-        userId: other.id,
-        matchId: matchRecord?.id ?? other.id,
-        isConnected: matchRecord?.status === 'ACCEPTED',
-        name: other.name,
-        avatarUrl: other.avatarUrl,
-        college: other.college,
-        score,
-        matchPercent: Math.min(100, Math.round(score * 20)),
-        scoreBreakdown: {
-          skillOverlap,
-          availabilityOverlap,
-          ratingScore,
-          experienceScore,
-        },
-        overlappingSkills: {
-          wantedByMe: matchedWantedByUser.map((skill) => ({ name: skill.name, category: skill.category })),
-          offeredByMe: matchedOfferedByUser.map((skill) => ({ name: skill.name, category: skill.category })),
-        },
-      };
-    });
-
-    return results
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .slice(0, MAX_SUGGESTIONS);
   }
 
+  /**
+   * Sends a connection request. If the other user has already asked to
+   * connect, this accepts their request instead.
+   */
   async connect(userId: string, targetUserId: string) {
     if (userId === targetUserId) {
       throw new BadRequestException('You cannot connect with yourself');
     }
 
-    const otherUser = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    const otherUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true },
+    });
     if (!otherUser) {
       throw new NotFoundException('Target user not found');
     }
 
-    const existingMatch = await this.prisma.match.findFirst({
+    const existing = await this.prisma.match.findFirst({
       where: {
         OR: [
           { userAId: userId, userBId: targetUserId },
@@ -193,47 +205,190 @@ export class MatchesService {
       },
     });
 
-    if (existingMatch) {
-      const updated = await this.prisma.match.update({
-        where: { id: existingMatch.id },
-        data: { status: 'ACCEPTED' },
+    if (!existing) {
+      const created = await this.prisma.match.create({
+        data: { userAId: userId, userBId: targetUserId, status: 'PENDING' },
       });
-      return { matchId: updated.id, status: updated.status };
+      return { matchId: created.id, status: created.status };
     }
 
-    const created = await this.prisma.match.create({
-      data: {
-        userAId: userId,
-        userBId: targetUserId,
-        status: 'ACCEPTED',
+    if (existing.status === 'ACCEPTED') {
+      return { matchId: existing.id, status: existing.status };
+    }
+
+    if (existing.status === 'PENDING') {
+      if (existing.userBId !== userId) {
+        // Our own request is still waiting for an answer.
+        return { matchId: existing.id, status: existing.status };
+      }
+      const accepted = await this.prisma.match.update({
+        where: { id: existing.id },
+        data: { status: 'ACCEPTED' },
+      });
+      return { matchId: accepted.id, status: accepted.status };
+    }
+
+    // A previously declined pair: re-open it as a fresh request from this user.
+    const reopened = await this.prisma.match.update({
+      where: { id: existing.id },
+      data: { userAId: userId, userBId: targetUserId, status: 'PENDING' },
+    });
+    return { matchId: reopened.id, status: reopened.status };
+  }
+
+  /** Only the recipient of a pending request may accept or decline it. */
+  async respond(userId: string, matchId: string, accept: boolean) {
+    const match = await this.getParticipantMatch(userId, matchId);
+
+    if (match.userBId !== userId) {
+      throw new ForbiddenException(
+        'Only the person who received this request can respond to it',
+      );
+    }
+    if (match.status !== 'PENDING') {
+      throw new BadRequestException('This request has already been answered');
+    }
+
+    const updated = await this.prisma.match.update({
+      where: { id: matchId },
+      data: { status: accept ? 'ACCEPTED' : 'REJECTED' },
+    });
+    return { matchId: updated.id, status: updated.status };
+  }
+
+  /** The requester can withdraw a request that has not been answered yet. */
+  async withdraw(userId: string, matchId: string) {
+    const match = await this.getParticipantMatch(userId, matchId);
+
+    if (match.userAId !== userId || match.status !== 'PENDING') {
+      throw new BadRequestException(
+        'Only your own pending requests can be withdrawn',
+      );
+    }
+
+    await this.prisma.match.delete({ where: { id: matchId } });
+  }
+
+  async getRequests(userId: string) {
+    const pending = await this.prisma.match.findMany({
+      where: { ...this.involving(userId), status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        createdAt: true,
+        userAId: true,
+        userA: { select: userSummarySelect },
+        userB: { select: userSummarySelect },
       },
     });
 
-    return { matchId: created.id, status: created.status };
+    const toRequest = (match: (typeof pending)[number]) => ({
+      matchId: match.id,
+      createdAt: match.createdAt,
+      user: match.userAId === userId ? match.userB : match.userA,
+    });
+
+    return {
+      incoming: pending.filter((m) => m.userAId !== userId).map(toRequest),
+      outgoing: pending.filter((m) => m.userAId === userId).map(toRequest),
+    };
   }
 
-  async getMessagesForMatch(userId: string, matchId: string) {
-    const match = await this.prisma.match.findUnique({
-      where: { id: matchId },
-      include: {
+  /** Accepted connections with their latest message and next session. */
+  async getConnections(userId: string) {
+    const matches = await this.prisma.match.findMany({
+      where: { ...this.involving(userId), status: 'ACCEPTED' },
+      select: {
+        id: true,
+        updatedAt: true,
+        userAId: true,
+        userA: { select: userSummarySelect },
+        userB: { select: userSummarySelect },
         messages: {
-          orderBy: { createdAt: 'asc' },
-          include: { sender: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { content: true, createdAt: true, senderId: true },
+        },
+        sessions: {
+          where: { status: 'SCHEDULED', scheduledAt: { gte: new Date() } },
+          orderBy: { scheduledAt: 'asc' },
+          take: 1,
+          select: { id: true, scheduledAt: true, topic: true },
         },
       },
     });
 
-    if (!match || (match.userAId !== userId && match.userBId !== userId)) {
-      throw new NotFoundException('Match not found or not accessible');
+    return matches
+      .map((match) => ({
+        matchId: match.id,
+        user: match.userAId === userId ? match.userB : match.userA,
+        lastMessage: match.messages[0] ?? null,
+        nextSession: match.sessions[0] ?? null,
+        lastActivityAt: match.messages[0]?.createdAt ?? match.updatedAt,
+      }))
+      .sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
+  }
+
+  /** A single match from the viewer's side, with the skills they can swap. */
+  async getMatchDetail(userId: string, matchId: string) {
+    const match = await this.getParticipantMatch(userId, matchId);
+    const partner = match.userAId === userId ? match.userB : match.userA;
+
+    const skillSelect = { select: { skill: { select: { name: true } } } };
+    const [me, them] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { offeredSkills: skillSelect, wantedSkills: skillSelect },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: partner.id },
+        select: { offeredSkills: skillSelect, wantedSkills: skillSelect },
+      }),
+    ]);
+
+    const names = (items?: { skill: { name: string } }[]) =>
+      new Set((items ?? []).map((item) => item.skill.name));
+    const myWanted = names(me?.wantedSkills);
+    const myOffered = names(me?.offeredSkills);
+
+    return {
+      matchId: match.id,
+      status: match.status,
+      direction: match.userAId === userId ? 'outgoing' : 'incoming',
+      partner,
+      // Topics worth scheduling a session about, in both directions.
+      swappableSkills: [
+        ...[...names(them?.offeredSkills)].filter((n) => myWanted.has(n)),
+        ...[...names(them?.wantedSkills)].filter((n) => myOffered.has(n)),
+      ],
+    };
+  }
+
+  async getMessagesForMatch(userId: string, matchId: string) {
+    const match = await this.getParticipantMatch(userId, matchId);
+    if (match.status !== 'ACCEPTED') {
+      throw new ForbiddenException(
+        'You can chat once the connection request is accepted',
+      );
     }
 
-    return match.messages.map((message) => ({
-      id: message.id,
-      matchId: message.matchId,
-      senderId: message.senderId,
-      senderName: message.sender.name,
-      content: message.content,
-      createdAt: message.createdAt,
+    const messages = await this.prisma.message.findMany({
+      where: { matchId },
+      orderBy: { createdAt: 'desc' },
+      take: MESSAGE_HISTORY_LIMIT,
+      select: {
+        id: true,
+        matchId: true,
+        senderId: true,
+        content: true,
+        createdAt: true,
+        sender: { select: { name: true } },
+      },
+    });
+
+    return messages.reverse().map(({ sender, ...message }) => ({
+      ...message,
+      senderName: sender.name,
     }));
   }
 }

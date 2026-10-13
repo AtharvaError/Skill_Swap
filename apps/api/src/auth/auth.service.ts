@@ -1,22 +1,24 @@
-import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { createHash, timingSafeEqual } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreditsService } from '../credits/credits.service';
+import { SIGNUP_BONUS } from '../credits/credits.rules';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {
-    if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
-      this.logger.error('JWT_SECRET and JWT_REFRESH_SECRET must be set in environment');
-    }
-  }
+    private creditsService: CreditsService,
+  ) {}
 
   async signup(dto: SignupDto) {
     const existingUser = await this.prisma.user.findUnique({
@@ -33,9 +35,15 @@ export class AuthService {
       },
     });
 
-    const tokens = await this.getTokens(user.id, user.email);
-    await this.updateRefreshToken(user.id, tokens.refresh_token);
-    return tokens;
+    await this.creditsService.grantOnce({
+      userId: user.id,
+      amount: SIGNUP_BONUS,
+      type: 'SIGNUP_BONUS',
+      description: 'Welcome bonus',
+      key: 'signup',
+    });
+
+    return this.issueTokens(user.id, user.email);
   }
 
   async login(dto: LoginDto) {
@@ -47,13 +55,11 @@ export class AuthService {
     const isMatch = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
-    const tokens = await this.getTokens(user.id, user.email);
-    await this.updateRefreshToken(user.id, tokens.refresh_token);
-    return tokens;
+    return this.issueTokens(user.id, user.email);
   }
 
   async logout(userId: string) {
-    await this.prisma.user.update({
+    await this.prisma.user.updateMany({
       where: { id: userId },
       data: { refreshTokenHash: null },
     });
@@ -67,15 +73,19 @@ export class AuthService {
       throw new UnauthorizedException('Access Denied');
     }
 
-    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
-    if (!isMatch) throw new UnauthorizedException('Access Denied');
+    const presented = Buffer.from(this.hashRefreshToken(refreshToken));
+    const stored = Buffer.from(user.refreshTokenHash);
+    if (
+      presented.length !== stored.length ||
+      !timingSafeEqual(presented, stored)
+    ) {
+      throw new UnauthorizedException('Access Denied');
+    }
 
-    const tokens = await this.getTokens(user.id, user.email);
-    await this.updateRefreshToken(user.id, tokens.refresh_token);
-    return tokens;
+    return this.issueTokens(user.id, user.email);
   }
 
-  private async getTokens(userId: string, email: string) {
+  private async issueTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -87,17 +97,25 @@ export class AuthService {
         expiresIn: '7d',
       }),
     ]);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshTokenHash: this.hashRefreshToken(refreshToken) },
+    });
+
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
     };
   }
 
-  private async updateRefreshToken(userId: string, refreshToken: string) {
-    const hash = await bcrypt.hash(refreshToken, 10);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshTokenHash: hash },
-    });
+  /**
+   * Refresh tokens are long random-looking JWTs, so a fast hash is enough.
+   * bcrypt must not be used here: it only reads the first 72 bytes, which are
+   * identical for every token issued to the same user, so rotated tokens
+   * would keep matching.
+   */
+  private hashRefreshToken(refreshToken: string) {
+    return createHash('sha256').update(refreshToken).digest('hex');
   }
 }

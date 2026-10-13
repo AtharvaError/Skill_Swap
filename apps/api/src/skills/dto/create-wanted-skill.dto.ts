@@ -1,11 +1,13 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateWantedSkillDto {
   @IsString()
   @IsNotEmpty()
-  name: string;
+  @MaxLength(60)
+  name!: string;
 
   @IsString()
+  @MaxLength(60)
   @IsOptional()
   category?: string;
 }

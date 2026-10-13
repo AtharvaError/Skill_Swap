@@ -2,10 +2,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// The connection URL lives in prisma.config.ts (Prisma 7) and is passed to the
+// client through the pg driver adapter in src/prisma/prisma.service.ts.
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
-
 
 model User {
   id                 String   @id @default(uuid())
@@ -16,25 +17,32 @@ model User {
   college            String?
   avatarUrl          String?
   ratingAvg          Float?   @default(0.0)
+  // Weekly availability slots, e.g. "MON_EVENING". See src/users/availability.ts.
+  availability       String[] @default([])
+  // Current credit balance. Only CreditsService changes it, always together
+  // with a CreditTransaction row, so the ledger and the balance stay in step.
+  credits            Int      @default(0)
   googleRefreshToken String?
   refreshTokenHash   String?
   createdAt          DateTime @default(now())
 
   offeredSkills OfferedSkill[]
   wantedSkills  WantedSkill[]
-  matchesAsA    Match[]        @relation("MatchUserA")
-  matchesAsB    Match[]        @relation("MatchUserB")
-  reviewsGiven  Review[]       @relation("ReviewAuthor")
-  reviewsGotten Review[]       @relation("ReviewTarget")
+  matchesAsA    Match[]             @relation("MatchUserA")
+  matchesAsB    Match[]             @relation("MatchUserB")
+  reviewsGiven  Review[]            @relation("ReviewAuthor")
+  reviewsGotten Review[]            @relation("ReviewTarget")
   messages      Message[]
   badges        UserBadge[]
+  creditHistory CreditTransaction[]
+  redemptions   Redemption[]
 }
 
 model Skill {
-  id       String         @id @default(uuid())
-  name     String         @unique
+  id       String @id @default(uuid())
+  name     String @unique
   category String
-  
+
   offeredBy OfferedSkill[]
   wantedBy  WantedSkill[]
 }
@@ -42,50 +50,71 @@ model Skill {
 model OfferedSkill {
   userId      String
   skillId     String
-  proficiency String // e.g., BEGINNER, INTERMEDIATE, EXPERT
+  proficiency String // BEGINNER, INTERMEDIATE, EXPERT
 
-  user  User  @relation(fields: [userId], references: [id])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id])
 
   @@id([userId, skillId])
+  @@index([skillId])
 }
 
 model WantedSkill {
   userId  String
   skillId String
 
-  user  User  @relation(fields: [userId], references: [id])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id])
 
   @@id([userId, skillId])
+  @@index([skillId])
 }
 
+// A connection between two users. userA is always the requester and userB the
+// recipient; the pair is unique regardless of direction (enforced in
+// MatchesService.connect).
 model Match {
-  id        String   @id @default(uuid())
+  id        String      @id @default(uuid())
   userAId   String
   userBId   String
   score     Float?
   status    MatchStatus
-  createdAt DateTime @default(now())
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @default(now()) @updatedAt
 
-  userA    User      @relation("MatchUserA", fields: [userAId], references: [id])
-  userB    User      @relation("MatchUserB", fields: [userBId], references: [id])
+  userA    User      @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB    User      @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Cascade)
   sessions Session[]
   messages Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
 }
 
 model Session {
-  id              String   @id @default(uuid())
+  id              String        @id @default(uuid())
   matchId         String
+  createdById     String?
+  topic           String?
+  notes           String?
+  // Set for a paid lesson: the other participant is the learner, whose
+  // creditCost is held when booking and paid to the teacher on completion.
+  // Null for a skill swap, where no credits change hands.
+  teacherId       String?
+  creditCost      Int           @default(0)
   scheduledAt     DateTime
   durationMinutes Int
   meetingLink     String?
   googleEventId   String?
   googleHtmlLink  String?
   status          SessionStatus
+  createdAt       DateTime      @default(now())
 
-  match   Match    @relation(fields: [matchId], references: [id])
+  match   Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   reviews Review[]
+
+  @@index([matchId])
+  @@index([scheduledAt])
 }
 
 model Review {
@@ -95,10 +124,14 @@ model Review {
   revieweeId String
   rating     Int
   comment    String?
+  createdAt  DateTime @default(now())
 
-  session  Session @relation(fields: [sessionId], references: [id])
-  reviewer User    @relation("ReviewAuthor", fields: [reviewerId], references: [id])
-  reviewee User    @relation("ReviewTarget", fields: [revieweeId], references: [id])
+  session  Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reviewer User    @relation("ReviewAuthor", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewee User    @relation("ReviewTarget", fields: [revieweeId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, reviewerId])
+  @@index([revieweeId])
 }
 
 model Message {
@@ -108,13 +141,15 @@ model Message {
   content   String
   createdAt DateTime @default(now())
 
-  match  Match @relation(fields: [matchId], references: [id])
-  sender User  @relation(fields: [senderId], references: [id])
+  match  Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  sender User  @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, createdAt])
 }
 
 model Badge {
   id       String      @id @default(uuid())
-  name     String
+  name     String      @unique
   criteria String
   users    UserBadge[]
 }
@@ -124,10 +159,64 @@ model UserBadge {
   badgeId  String
   earnedAt DateTime @default(now())
 
-  user  User  @relation(fields: [userId], references: [id])
-  badge Badge @relation(fields: [badgeId], references: [id])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
 
   @@id([userId, badgeId])
+}
+
+// Append-only record of every change to a user's credit balance.
+model CreditTransaction {
+  id          String     @id @default(uuid())
+  userId      String
+  // Positive when credits are received, negative when they are spent.
+  amount      Int
+  type        CreditType
+  description String
+  // Idempotency key, e.g. "session:<id>:payout" or "badge:<id>": the same
+  // event can never be credited to a user twice.
+  key         String?
+  sessionId   String?
+  createdAt   DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId, createdAt])
+}
+
+model Redemption {
+  id        String           @id @default(uuid())
+  userId    String
+  // Key into the rewards catalogue; title and cost are snapshotted because
+  // the catalogue can change after the redemption is made.
+  rewardId  String
+  title     String
+  cost      Int
+  status    RedemptionStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+enum CreditType {
+  SIGNUP_BONUS
+  ACHIEVEMENT
+  REVIEW_BONUS
+  LESSON_HOLD
+  LESSON_REFUND
+  LESSON_EARNED
+  REDEMPTION
+  REDEMPTION_REFUND
+}
+
+enum RedemptionStatus {
+  PENDING
+  FULFILLED
+  CANCELLED
 }
 
 enum MatchStatus {

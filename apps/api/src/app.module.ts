@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -9,8 +11,8 @@ import { MatchesModule } from './matches/matches.module';
 import { ChatModule } from './chat/chat.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { CalendarModule } from './calendar/calendar.module';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { CreditsModule } from './credits/credits.module';
+import { RewardsModule } from './rewards/rewards.module';
 
 @Module({
   imports: [
@@ -22,11 +24,13 @@ import { APP_GUARD } from '@nestjs/core';
     ChatModule,
     SessionsModule,
     CalendarModule,
+    CreditsModule,
+    RewardsModule,
     ThrottlerModule.forRoot([
       {
         name: 'default',
         ttl: 60000, // 1 minute window
-        limit: 100, // 100 requests per minute
+        limit: 300, // per IP; sensitive routes set a stricter @Throttle
       },
     ]),
   ],

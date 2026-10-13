@@ -1,36 +1,50 @@
-import { config } from 'dotenv';
-import { resolve } from 'path';
-// Explicitly resolve .env relative to this file so it works from any cwd
-// (monorepo root run or direct apps/api run, both src/ and dist/)
-config({ path: resolve(__dirname, '../.env') });
-config(); // fallback: also load process.cwd()/.env if the above doesn't match
+// Must stay first: modules below read process.env while they are imported.
+import './load-env';
 
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ForbiddenException, ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { AppModule } from './app.module';
 import { doubleCsrfProtection } from './auth/csrf.config';
+import { allowedOrigins } from './auth/cookie.config';
 
-async function bootstrap() {
-  // Validate required secrets before starting
-  const requiredVars = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'CSRF_SECRET'];
-  for (const v of requiredVars) {
-    if (!process.env[v] || process.env[v]?.startsWith('change-me')) {
+const PLACEHOLDER_PREFIXES = ['change-me', 'replace_with'];
+
+function assertRequiredEnv() {
+  for (const name of ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'CSRF_SECRET']) {
+    const value = process.env[name]?.toLowerCase();
+    if (!value || PLACEHOLDER_PREFIXES.some((p) => value.startsWith(p))) {
       throw new Error(
-        `${v} is not set or contains a placeholder value. Generate a strong random string:\n` +
-        `  node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`,
+        `${name} is not set or contains a placeholder value. Generate a strong random string:\n` +
+          `  node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`,
       );
     }
   }
+  if (!process.env.DATABASE_URL?.startsWith('postgres')) {
+    throw new Error(
+      'DATABASE_URL must be a PostgreSQL connection string (postgresql://...).',
+    );
+  }
+}
 
-  const app = await NestFactory.create(AppModule);
+async function bootstrap() {
+  assertRequiredEnv();
+
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Hosting platforms put the API behind one proxy hop. Without this every
+  // request appears to come from the proxy and shares a single rate limit.
+  if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+
   app.use(cookieParser());
 
-  // CORS configuration from environment variables
-  const allowedOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
   app.enableCors({
-    origin: allowedOrigin,
+    origin: allowedOrigins(),
     credentials: true,
   });
 
@@ -40,19 +54,29 @@ async function bootstrap() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          connectSrc: ["'self'", "https://*.daily.co", "wss://*.daily.co"],
-          frameSrc: ["'self'", "https://*.daily.co", "https://calendar.google.com"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com"],
-          fontSrc: ["'self'", "fonts.gstatic.com"],
-          imgSrc: ["'self'", "data:", "*.googleusercontent.com"],
+          connectSrc: ["'self'", 'https://*.daily.co', 'wss://*.daily.co'],
+          frameSrc: [
+            "'self'",
+            'https://*.daily.co',
+            'https://calendar.google.com',
+          ],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
+          fontSrc: ["'self'", 'fonts.gstatic.com'],
+          imgSrc: ["'self'", 'data:', '*.googleusercontent.com'],
         },
       },
     }),
   );
 
-  // CSRF protection middleware for all state-changing requests
-  app.use(doubleCsrfProtection);
+  // CSRF protection middleware for all state-changing requests. A bad or
+  // missing token is an expected client error, so it is turned into a plain
+  // 403 instead of being logged as an unhandled server error.
+  app.use((req: Request, res: Response, next: NextFunction) =>
+    doubleCsrfProtection(req, res, (error?: unknown) =>
+      next(error ? new ForbiddenException('invalid csrf token') : undefined),
+    ),
+  );
 
   // Global validation pipe with whitelist and forbidNonWhitelisted enabled
   app.useGlobalPipes(
@@ -63,6 +87,9 @@ async function bootstrap() {
     }),
   );
 
+  app.enableShutdownHooks();
+
   await app.listen(process.env.PORT ?? 3001);
 }
-bootstrap();
+
+void bootstrap();

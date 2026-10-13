@@ -3,122 +3,171 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { formatDateTime } from '@/lib/format';
+import { useNow } from '@/lib/hooks';
+import type { Session } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/Avatar';
 import PageTransition, { FadeIn } from '@/components/PageTransition';
 
+const STATUS_STYLES: Record<string, string> = {
+  SCHEDULED: 'bg-emerald-950/60 text-emerald-300 ring-emerald-500/30',
+  IN_PROGRESS: 'bg-amber-950/50 text-amber-200 ring-amber-500/30',
+  COMPLETED: 'bg-purple-950/60 text-purple-200 ring-purple-500/30',
+  CANCELLED: 'bg-slate-900/80 text-slate-400 ring-white/10',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  SCHEDULED: 'Scheduled',
+  IN_PROGRESS: 'Happening now',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+function SessionCard({ session, now }: { session: Session; now: number }) {
+  const start = new Date(session.scheduledAt).getTime();
+  const end = start + session.durationMinutes * 60000;
+  const live = session.status === 'SCHEDULED' && now >= start && now < end;
+  const overdue = session.status === 'SCHEDULED' && now >= end;
+  const displayStatus = live ? 'IN_PROGRESS' : session.status;
+
+  return (
+    <FadeIn>
+      <article className="glass-card rounded-3xl p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar name={session.partner.name} src={session.partner.avatarUrl} />
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-semibold text-white">
+                {session.topic ?? 'SkillSwap session'}
+              </h3>
+              <p className="truncate text-sm text-slate-400">
+                with{' '}
+                <Link href={`/users/${session.partner.id}`} className="text-slate-200 hover:underline">
+                  {session.partner.name}
+                </Link>
+              </p>
+            </div>
+          </div>
+          <span className={cn('rounded-full px-3 py-1 text-xs font-semibold ring-1', STATUS_STYLES[displayStatus])}>
+            {STATUS_LABELS[displayStatus]}
+          </span>
+        </div>
+
+        <p className="mt-3 text-sm text-slate-300">
+          {formatDateTime(session.scheduledAt)} · {session.durationMinutes} minutes
+          <span className="text-slate-500"> · </span>
+          {session.role ? (
+            <span className="text-amber-200">
+              {session.role === 'teacher' ? 'You teach' : 'Lesson'} · {session.creditCost} credit
+              {session.creditCost === 1 ? '' : 's'}
+            </span>
+          ) : (
+            <span className="text-slate-400">Skill swap</span>
+          )}
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Link
+            href={`/sessions/${session.id}`}
+            className={cn(
+              'rounded-xl px-4 py-2 text-sm font-medium text-white',
+              live ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-purple-700 hover:bg-purple-600',
+            )}
+          >
+            {live ? 'Join now' : 'View session'}
+          </Link>
+          {overdue ? (
+            <span className="text-xs text-amber-200">
+              {session.role === 'teacher'
+                ? `Waiting for ${session.partner.name.split(' ')[0]} to confirm the lesson.`
+                : 'Finished? Open it to mark it complete.'}
+            </span>
+          ) : session.status === 'COMPLETED' && !session.hasReviewed ? (
+            <span className="text-xs text-amber-200">Leave a review for {session.partner.name.split(' ')[0]}</span>
+          ) : null}
+        </div>
+      </article>
+    </FadeIn>
+  );
+}
+
 export default function MySessionsPage() {
+  const now = useNow();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sessions'],
-    queryFn: async () => {
-      const res = await api.get('/sessions');
-      return res.data as Array<{
-        id: string;
-        scheduledAt: string;
-        durationMinutes: number;
-        meetingLink?: string;
-        googleHtmlLink?: string;
-        status: string;
-        match: {
-          userA: { name: string };
-          userB: { name: string };
-        };
-      }>;
-    },
+    queryFn: async () => (await api.get<Session[]>('/sessions')).data,
   });
 
-  const now = new Date();
+  // The API returns newest first. Upcoming reads better soonest first.
+  const upcoming = (data ?? [])
+    .filter(
+      (session) =>
+        session.status === 'SCHEDULED' &&
+        new Date(session.scheduledAt).getTime() + session.durationMinutes * 60000 > now,
+    )
+    .reverse();
+  const upcomingIds = new Set(upcoming.map((session) => session.id));
+  const past = (data ?? []).filter((session) => !upcomingIds.has(session.id));
 
   return (
     <PageTransition>
-      <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-6xl rounded-3xl border border-slate-800 glass-card p-6 shadow-lg shadow-slate-900/20">
-          <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto max-w-4xl space-y-8">
+          <header className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-purple-300">My Sessions</p>
-              <h1 className="text-3xl font-bold text-white">Your upcoming and past SkillSwap sessions</h1>
+              <p className="text-sm uppercase tracking-[0.3em] text-purple-300">Sessions</p>
+              <h1 className="mt-1 text-3xl font-bold text-white sm:text-4xl">Your sessions</h1>
             </div>
-            <Link href="/matches" aria-label="Back to matches page" className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700">Back to Matches</Link>
+            <Link
+              href="/matches?tab=connections"
+              className="rounded-xl bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-600"
+            >
+              Schedule a session
+            </Link>
           </header>
 
           {isLoading ? (
-            <section className="space-y-4" aria-label="Loading sessions">
+            <div className="space-y-4" role="status" aria-label="Loading sessions">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="rounded-3xl border border-slate-800 glass p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-2 flex-1">
-                      <div className="skeleton h-4 w-24 rounded" />
-                      <div className="skeleton h-6 w-48 rounded" />
-                    </div>
-                    <div className="skeleton h-6 w-20 rounded-full" />
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <div className="skeleton h-3 w-10 rounded" />
-                      <div className="skeleton h-4 w-36 rounded" />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="skeleton h-3 w-14 rounded" />
-                      <div className="skeleton h-4 w-20 rounded" />
-                    </div>
-                  </div>
-                  <div className="mt-4 flex gap-3">
-                    <div className="skeleton h-9 w-28 rounded-2xl" />
-                    <div className="skeleton h-9 w-28 rounded-2xl" />
-                  </div>
-                </div>
+                <div key={i} className="skeleton h-36 rounded-3xl" />
               ))}
-            </section>
+            </div>
           ) : isError ? (
-            <section className="rounded-3xl border border-slate-800 bg-rose-950/70 p-8 text-center text-rose-200" role="alert">
-              <p>Unable to load sessions.</p>
+            <section className="glass-card rounded-3xl p-10 text-center text-rose-200" role="alert">
+              Unable to load sessions. Please refresh the page.
             </section>
           ) : data?.length === 0 ? (
-            <section className="rounded-3xl border border-slate-800 glass p-8 text-center text-slate-400">
-              <p>No sessions yet. Schedule one from a match page.</p>
+            <section className="glass-card rounded-3xl p-10 text-center">
+              <p className="text-lg font-semibold text-white">No sessions yet</p>
+              <p className="mt-2 text-sm text-slate-400">
+                Pick one of your connections and agree on a time to swap skills.
+              </p>
             </section>
           ) : (
-            <section className="space-y-4" aria-label="Session list">
-              {data!.map((session) => {
-                const participants = `${session.match.userA.name} & ${session.match.userB.name}`;
-                const startDate = new Date(session.scheduledAt);
-                const isPast = startDate < now;
-                return (
-                  <FadeIn key={session.id}>
-                    <article className="rounded-3xl border border-slate-800 glass p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Session participants</p>
-                          <h2 className="text-xl font-semibold text-white">{participants}</h2>
-                        </div>
-                        <div className="rounded-full px-3 py-1 text-sm font-semibold text-white" style={{ backgroundColor: isPast ? '#7c3aed' : '#16a34a' }} aria-label={`Session status: ${session.status}`}>
-                          {session.status}
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <p className="text-sm text-slate-400">When</p>
-                          <p className="text-white">{startDate.toLocaleString()}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-400">Duration</p>
-                          <p className="text-white">{session.durationMinutes} minutes</p>
-                        </div>
-                      </div>
-                      <nav className="mt-4 flex flex-wrap gap-3" aria-label="Session actions">
-                        <Link href={`/sessions/${session.id}`} aria-label={`View session with ${participants}`} className="rounded-2xl bg-purple-700 px-4 py-2 text-sm text-white hover:bg-purple-600">
-                          View Session
-                        </Link>
-                        {session.meetingLink ? (
-                          <a href={session.meetingLink} target="_blank" rel="noreferrer" aria-label="Join video meeting" className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700">Join Meeting</a>
-                        ) : null}
-                        {session.googleHtmlLink ? (
-                          <a href={session.googleHtmlLink} target="_blank" rel="noreferrer" aria-label="View Google Calendar event" className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700">View Event</a>
-                        ) : null}
-                      </nav>
-                    </article>
-                  </FadeIn>
-                );
-              })}
-            </section>
+            <>
+              <section aria-labelledby="upcoming-heading" className="space-y-4">
+                <h2 id="upcoming-heading" className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Upcoming
+                </h2>
+                {upcoming.length === 0 ? (
+                  <p className="glass-card rounded-3xl p-6 text-sm text-slate-400">Nothing coming up.</p>
+                ) : (
+                  upcoming.map((session) => <SessionCard key={session.id} session={session} now={now} />)
+                )}
+              </section>
+
+              {past.length > 0 ? (
+                <section aria-labelledby="past-heading" className="space-y-4">
+                  <h2 id="past-heading" className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Past
+                  </h2>
+                  {past.map((session) => (
+                    <SessionCard key={session.id} session={session} now={now} />
+                  ))}
+                </section>
+              ) : null}
+            </>
           )}
         </div>
       </main>

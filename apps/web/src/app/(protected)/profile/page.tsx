@@ -1,586 +1,698 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Dialog } from '@base-ui/react/dialog';
+import { Award } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { api, apiBaseURL } from '@/lib/api';
+import { AVAILABILITY_DAYS, AVAILABILITY_PERIODS, slotKey } from '@/lib/availability';
+import { getApiErrorMessage } from '@/lib/errors';
+import { useMe } from '@/lib/hooks';
+import type { Me, OfferedSkill, WantedSkill } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/Avatar';
+import PageTransition, { SlideUp } from '@/components/PageTransition';
+import { Rating } from '@/components/Rating';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Dialog } from '@base-ui/react/dialog';
-import { Select } from '@base-ui/react/select';
-import PageTransition, { SlideUp } from '@/components/PageTransition';
-import toast from 'react-hot-toast';
-import { getApiErrorMessage } from '@/lib/errors';
-import { Star, Award } from 'lucide-react';
 
-
-type UserBadge = {
-  earnedAt: string;
-  badge: {
-    id: string;
-    name: string;
-    criteria: string;
-  };
-};
-type UserProfile = {
-  id: string;
-  email: string;
-  name: string;
-  bio?: string | null;
-  college?: string | null;
-  avatarUrl?: string | null;
-  ratingAvg?: number | null;
-  badges?: UserBadge[];
-};
-
-const proficiencyOptions = [
+const PROFICIENCY_OPTIONS = [
   { value: 'BEGINNER', label: 'Beginner' },
   { value: 'INTERMEDIATE', label: 'Intermediate' },
   { value: 'EXPERT', label: 'Expert' },
 ];
 
-export default function ProfilePage() {
-  const queryClient = useQueryClient();
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isAddOfferedOpen, setIsAddOfferedOpen] = useState(false);
-  const [isAddWantedOpen, setIsAddWantedOpen] = useState(false);
-  const [skillSearch, setSkillSearch] = useState('');
-  const [selectedSkill, setSelectedSkill] = useState<{ name: string; category: string } | null>(null);
-  const [proficiency, setProficiency] = useState('INTERMEDIATE');
-  const [isCustom, setIsCustom] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: '', bio: '', college: '', avatarUrl: '' });
-  const [editError, setEditError] = useState('');
-  const [addError, setAddError] = useState('');
+const dialogBackdrop = 'fixed inset-0 z-50 bg-black/70 backdrop-blur-sm';
+const dialogPopup =
+  'fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(92vw,540px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-white/10 bg-[oklch(0.16_0.02_280)] p-6 shadow-2xl shadow-black/50';
+const dialogClose = 'rounded-xl bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10';
 
-  const userQuery = useQuery({
-    queryKey: ['me'],
-    queryFn: async () => {
-      const res = await api.get('/users/me');
-      return res.data as UserProfile;
+function EditProfileDialog({
+  user,
+  open,
+  onOpenChange,
+}: {
+  user: Me;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    name: user.name,
+    bio: user.bio ?? '',
+    college: user.college ?? '',
+    avatarUrl: user.avatarUrl ?? '',
+  });
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: async () => (await api.patch<Me>('/users/me', form)).data,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['me'], data);
+      queryClient.invalidateQueries({ queryKey: ['overview'] });
+      onOpenChange(false);
+      toast.success('Profile updated!');
+    },
+    onError: (err: unknown) => {
+      const message = getApiErrorMessage(err, 'Could not save profile');
+      setError(message);
+      toast.error(message);
     },
   });
+
+  const field = (key: keyof typeof form) => ({
+    value: form[key],
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((previous) => ({ ...previous, [key]: event.target.value })),
+  });
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={dialogBackdrop} />
+        <Dialog.Popup className={dialogPopup}>
+          <Dialog.Title className="text-xl font-semibold text-white">Edit profile</Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-slate-400">
+            This is what other people see when they find you.
+          </Dialog.Description>
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!form.name.trim()) {
+                setError('Name is required');
+                return;
+              }
+              mutation.mutate();
+            }}
+          >
+            <div>
+              <label htmlFor="profile-name" className="block text-sm text-slate-300">
+                Name
+              </label>
+              <Input id="profile-name" required maxLength={100} className="mt-1 h-10" {...field('name')} />
+            </div>
+            <div>
+              <label htmlFor="profile-bio" className="block text-sm text-slate-300">
+                Bio
+              </label>
+              <textarea
+                id="profile-bio"
+                maxLength={500}
+                rows={4}
+                className="mt-1 w-full rounded-lg border border-input bg-input/30 p-2.5 text-sm text-white outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                placeholder="What do you love teaching? What are you hoping to learn?"
+                {...field('bio')}
+              />
+            </div>
+            <div>
+              <label htmlFor="profile-college" className="block text-sm text-slate-300">
+                College or school
+              </label>
+              <Input id="profile-college" maxLength={200} className="mt-1 h-10" {...field('college')} />
+            </div>
+            <div>
+              <label htmlFor="profile-avatar" className="block text-sm text-slate-300">
+                Photo URL (optional)
+              </label>
+              <Input
+                id="profile-avatar"
+                type="url"
+                inputMode="url"
+                placeholder="https://…"
+                className="mt-1 h-10"
+                {...field('avatarUrl')}
+              />
+            </div>
+            {error ? (
+              <p className="text-sm text-rose-300" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Dialog.Close className={dialogClose}>Cancel</Dialog.Close>
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                className="h-9 bg-purple-600 px-4 text-white hover:bg-purple-500"
+              >
+                {mutation.isPending ? 'Saving…' : 'Save profile'}
+              </Button>
+            </div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function AddSkillDialog({
+  kind,
+  open,
+  onOpenChange,
+}: {
+  kind: 'offered' | 'wanted';
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<{ name: string; category: string } | null>(null);
+  const [proficiency, setProficiency] = useState('INTERMEDIATE');
+  const [error, setError] = useState('');
 
   const catalogQuery = useQuery({
     queryKey: ['skills', 'catalog'],
-    queryFn: async () => {
-      const res = await api.get('/skills/catalog');
-      return res.data as Record<string, string[]>;
+    queryFn: async () => (await api.get<Record<string, string[]>>('/skills/catalog')).data,
+    staleTime: Infinity,
+  });
+
+  const suggestions = useMemo(() => {
+    const items = Object.entries(catalogQuery.data ?? {}).flatMap(([category, names]) =>
+      names.map((name) => ({ category, name })),
+    );
+    const query = search.trim().toLowerCase();
+    if (!query) return items.slice(0, 6);
+    return items
+      .filter((item) => item.name.toLowerCase().includes(query) || item.category.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [catalogQuery.data, search]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const name = selected?.name ?? search.trim();
+      await api.post(`/skills/${kind}`, {
+        name,
+        category: selected?.category,
+        ...(kind === 'offered' ? { proficiency } : {}),
+      });
+    },
+    onSuccess: () => {
+      for (const key of [['skills', kind], ['overview'], ['matches']]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+      onOpenChange(false);
+      toast.success('Skill added!');
+    },
+    onError: (err: unknown) => {
+      const message = getApiErrorMessage(err, 'Could not add skill');
+      setError(message);
+      toast.error(message);
     },
   });
 
-  const offeredQuery = useQuery({
-    queryKey: ['skills', 'offered'],
-    queryFn: async () => {
-      const res = await api.get('/skills/offered');
-      return res.data as Array<{ skillId: string; name: string; category: string; proficiency: string }>;
+  const offered = kind === 'offered';
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={dialogBackdrop} />
+        <Dialog.Popup className={dialogPopup}>
+          <Dialog.Title className="text-xl font-semibold text-white">
+            {offered ? 'Add a skill you can teach' : 'Add a skill you want to learn'}
+          </Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-slate-400">
+            Pick from the list or type your own.
+          </Dialog.Description>
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!(selected?.name ?? search.trim())) {
+                setError('Enter a skill name');
+                return;
+              }
+              mutation.mutate();
+            }}
+          >
+            <div>
+              <label htmlFor={`${kind}-skill-name`} className="block text-sm text-slate-300">
+                Skill
+              </label>
+              <Input
+                id={`${kind}-skill-name`}
+                value={search}
+                maxLength={60}
+                autoComplete="off"
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setSelected(null);
+                  setError('');
+                }}
+                placeholder={offered ? 'e.g. Python, UI Design, Guitar' : 'e.g. Public Speaking, Figma, Piano'}
+                className="mt-1 h-10"
+              />
+            </div>
+
+            {suggestions.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Suggested skills">
+                {suggestions.map((item) => {
+                  const active = selected?.name === item.name;
+                  return (
+                    <button
+                      type="button"
+                      key={`${item.category}-${item.name}`}
+                      aria-pressed={active}
+                      onClick={() => {
+                        setSelected(item);
+                        setSearch(item.name);
+                        setError('');
+                      }}
+                      className={cn(
+                        'rounded-2xl border px-3 py-2 text-left text-sm transition',
+                        active
+                          ? 'border-purple-500 bg-purple-900/80 text-white'
+                          : 'border-white/10 bg-white/[0.04] text-slate-200 hover:border-purple-500/60',
+                      )}
+                    >
+                      <span className="font-semibold">{item.name}</span>
+                      <span className="block text-xs text-slate-400">{item.category}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {offered ? (
+              <fieldset>
+                <legend className="text-sm text-slate-300">Your level</legend>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {PROFICIENCY_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={cn(
+                        'cursor-pointer rounded-xl border px-3 py-2 text-center text-sm transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-purple-500',
+                        proficiency === option.value
+                          ? 'border-purple-500 bg-purple-900/80 text-white'
+                          : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-purple-500/60',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="proficiency"
+                        value={option.value}
+                        checked={proficiency === option.value}
+                        onChange={() => setProficiency(option.value)}
+                        className="sr-only"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+
+            {error ? (
+              <p className="text-sm text-rose-300" role="alert">
+                {error}
+              </p>
+            ) : null}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Dialog.Close className={dialogClose}>Cancel</Dialog.Close>
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                className="h-9 bg-purple-600 px-4 text-white hover:bg-purple-500"
+              >
+                {mutation.isPending ? 'Adding…' : 'Add skill'}
+              </Button>
+            </div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function SkillsCard({ kind }: { kind: 'offered' | 'wanted' }) {
+  const queryClient = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  // Remounting the dialog on each open gives it a clean form.
+  const [dialogKey, setDialogKey] = useState(0);
+  const offered = kind === 'offered';
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['skills', kind],
+    queryFn: async () => (await api.get<Array<OfferedSkill | WantedSkill>>(`/skills/${kind}`)).data,
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (skillId: string) => {
+      await api.delete(`/skills/${kind}/${skillId}`);
+    },
+    onSuccess: () => {
+      for (const key of [['skills', kind], ['overview'], ['matches']]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+      toast.success('Skill removed');
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not remove skill'));
     },
   });
 
-  const wantedQuery = useQuery({
-    queryKey: ['skills', 'wanted'],
-    queryFn: async () => {
-      const res = await api.get('/skills/wanted');
-      return res.data as Array<{ skillId: string; name: string; category: string }>;
-    },
-  });
+  return (
+    <Card className="glass-card border-0">
+      <CardHeader className="px-6 pt-2">
+        <CardTitle className="text-xl font-semibold text-white">
+          <h2>{offered ? 'Skills I offer' : 'Skills I want'}</h2>
+        </CardTitle>
+        <CardDescription className="text-sm text-slate-400">
+          {offered ? 'What you can teach or help others with.' : 'What you would like to learn.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-6">
+        {isLoading ? (
+          <div className="flex flex-wrap gap-3" role="status" aria-label="Loading skills">
+            <div className="skeleton h-9 w-24 rounded-full" />
+            <div className="skeleton h-9 w-32 rounded-full" />
+          </div>
+        ) : data?.length ? (
+          <ul className="flex flex-wrap gap-3">
+            {data.map((skill) => (
+              <li
+                key={skill.skillId}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm text-white',
+                  offered ? 'border-purple-700/40 bg-purple-900/70' : 'border-emerald-600/40 bg-emerald-900/70',
+                )}
+              >
+                <span>{skill.name}</span>
+                {'proficiency' in skill ? (
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[0.7rem] uppercase tracking-[0.12em] text-purple-100">
+                    {skill.proficiency.toLowerCase()}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => removeMutation.mutate(skill.skillId)}
+                  disabled={removeMutation.isPending}
+                  className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-slate-200 transition hover:bg-white/20"
+                  aria-label={`Remove ${skill.name}`}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-400">
+            {offered ? 'No offered skills yet.' : 'No wanted skills yet.'}
+          </p>
+        )}
+      </CardContent>
+      <CardFooter className="border-white/[0.06] bg-transparent px-6 py-4">
+        <Button
+          onClick={() => {
+            setDialogKey((key) => key + 1);
+            setDialogOpen(true);
+          }}
+          className={cn(
+            'h-9 w-full text-white',
+            offered ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-purple-700 hover:bg-purple-600',
+          )}
+        >
+          {offered ? 'Add a skill I offer' : 'Add a skill I want'}
+        </Button>
+      </CardFooter>
+      <AddSkillDialog key={dialogKey} kind={kind} open={dialogOpen} onOpenChange={setDialogOpen} />
+    </Card>
+  );
+}
 
-  const updateProfileMutation = useMutation({
-    mutationFn: async (payload: { name: string; bio: string; college: string; avatarUrl: string }) => {
-      const res = await api.patch('/users/me', payload);
-      return res.data;
-    },
+function AvailabilityCard({ user }: { user: Me }) {
+  const queryClient = useQueryClient();
+  // null means "no unsaved edits": show what the server has.
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const slots = draft ?? user.availability;
+
+  const mutation = useMutation({
+    mutationFn: async () => (await api.patch<Me>('/users/me', { availability: slots })).data,
     onSuccess: (data) => {
       queryClient.setQueryData(['me'], data);
-      setIsEditOpen(false);
-      setEditError('');
-      toast.success('Profile updated!');
+      for (const key of ['overview', 'matches']) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      setDraft(null);
+      toast.success('Availability saved');
     },
     onError: (error: unknown) => {
-      const msg = getApiErrorMessage(error, 'Could not save profile');
-      setEditError(msg);
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, 'Could not save availability'));
     },
   });
 
-  const addOfferedMutation = useMutation({
-    mutationFn: async (payload: { name: string; category?: string; proficiency: string }) => {
-      await api.post('/skills/offered', payload);
+  const toggle = (slot: string) =>
+    setDraft(slots.includes(slot) ? slots.filter((s) => s !== slot) : [...slots, slot]);
+
+  return (
+    <section className="glass-card rounded-3xl p-6" aria-labelledby="availability-heading">
+      <h2 id="availability-heading" className="text-xl font-semibold text-white">
+        Weekly availability
+      </h2>
+      <p className="mt-1 text-sm text-slate-400">
+        Tap the times you are usually free. People with overlapping times rank higher in your matches.
+      </p>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[420px] border-separate border-spacing-1.5 text-sm">
+          <thead>
+            <tr>
+              <td />
+              {AVAILABILITY_DAYS.map((day) => (
+                <th key={day.key} scope="col" className="pb-1 text-xs font-medium text-slate-400">
+                  {day.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {AVAILABILITY_PERIODS.map((period) => (
+              <tr key={period.key}>
+                <th scope="row" className="pr-2 text-left text-xs font-medium text-slate-400">
+                  {period.label}
+                </th>
+                {AVAILABILITY_DAYS.map((day) => {
+                  const slot = slotKey(day.key, period.key);
+                  const active = slots.includes(slot);
+                  return (
+                    <td key={slot}>
+                      <button
+                        type="button"
+                        aria-pressed={active}
+                        aria-label={`${day.label} ${period.label.toLowerCase()}`}
+                        onClick={() => toggle(slot)}
+                        className={cn(
+                          'h-9 w-full rounded-lg border transition',
+                          active
+                            ? 'border-emerald-500/60 bg-emerald-600/70'
+                            : 'border-white/10 bg-white/[0.04] hover:border-emerald-500/40',
+                        )}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {draft ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            className="h-9 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+          >
+            {mutation.isPending ? 'Saving…' : 'Save availability'}
+          </Button>
+          <Button onClick={() => setDraft(null)} className="h-9 bg-white/5 px-4 text-white hover:bg-white/10">
+            Discard changes
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CalendarCard({ user }: { user: Me }) {
+  const queryClient = useQueryClient();
+  const disconnect = useMutation({
+    mutationFn: async () => {
+      await api.delete('/calendar/connection');
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['skills', 'offered'] });
-      setIsAddOfferedOpen(false);
-      resetSkillDialog();
-      setAddError('');
-      toast.success('Skill added!');
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      toast.success('Google Calendar disconnected');
     },
     onError: (error: unknown) => {
-      const msg = getApiErrorMessage(error, 'Could not add skill');
-      setAddError(msg);
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, 'Could not disconnect Google Calendar'));
     },
   });
 
-  const addWantedMutation = useMutation({
-    mutationFn: async (payload: { name: string; category?: string }) => {
-      await api.post('/skills/wanted', payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['skills', 'wanted'] });
-      setIsAddWantedOpen(false);
-      resetSkillDialog();
-      setAddError('');
-      toast.success('Skill added!');
-    },
-    onError: (error: unknown) => {
-      const msg = getApiErrorMessage(error, 'Could not add skill');
-      setAddError(msg);
-      toast.error(msg);
-    },
-  });
+  return (
+    <section className="glass-card rounded-3xl p-6" aria-labelledby="calendar-heading">
+      <h2 id="calendar-heading" className="text-xl font-semibold text-white">
+        Google Calendar
+      </h2>
+      <p className="mt-1 text-sm text-slate-400">
+        {user.hasGoogleCalendar
+          ? 'Connected. Sessions you schedule are added to your calendar with a Meet link.'
+          : 'Connect to add the sessions you schedule to your calendar automatically.'}
+      </p>
+      <div className="mt-4">
+        {user.hasGoogleCalendar ? (
+          <Button
+            onClick={() => disconnect.mutate()}
+            disabled={disconnect.isPending}
+            className="h-9 bg-white/5 px-4 text-white hover:bg-white/10"
+          >
+            Disconnect
+          </Button>
+        ) : (
+          <Button
+            onClick={() => window.location.assign(`${apiBaseURL}/calendar/connect`)}
+            className="h-9 bg-purple-700 px-4 text-white hover:bg-purple-600"
+          >
+            Connect Google Calendar
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
 
-  const removeOfferedMutation = useMutation({
-    mutationFn: async (skillId: string) => {
-      await api.delete(`/skills/offered/${skillId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['skills', 'offered'] });
-      toast.success('Skill removed');
-    },
-    onError: (error: unknown) => {
-      toast.error(getApiErrorMessage(error, 'Could not remove skill'));
-    },
-  });
+export default function ProfilePage() {
+  const { data: user, isLoading, isError } = useMe();
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editKey, setEditKey] = useState(0);
 
-  const removeWantedMutation = useMutation({
-    mutationFn: async (skillId: string) => {
-      await api.delete(`/skills/wanted/${skillId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['skills', 'wanted'] });
-      toast.success('Skill removed');
-    },
-    onError: (error: unknown) => {
-      toast.error(getApiErrorMessage(error, 'Could not remove skill'));
-    },
-  });
-
-  const catalogItems = useMemo(() => {
-    if (!catalogQuery.data) return [];
-    return Object.entries(catalogQuery.data).flatMap(([category, items]) =>
-      items.map((item) => ({ category, name: item })),
+  if (isLoading) {
+    return (
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[360px_1fr]" role="status" aria-label="Loading profile">
+          <div className="skeleton h-96 rounded-3xl" />
+          <div className="space-y-6">
+            <div className="skeleton h-48 rounded-3xl" />
+            <div className="skeleton h-48 rounded-3xl" />
+          </div>
+        </div>
+      </main>
     );
-  }, [catalogQuery.data]);
+  }
 
-  const filteredCatalog = useMemo(() => {
-    const query = skillSearch.trim().toLowerCase();
-    if (!query) return catalogItems;
-    return catalogItems.filter((item) =>
-      item.name.toLowerCase().includes(query) || item.category.toLowerCase().includes(query),
+  if (isError || !user) {
+    return (
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
+        <section className="mx-auto max-w-3xl glass-card rounded-3xl p-10 text-center text-rose-200" role="alert">
+          We couldn&apos;t load your profile. Please refresh the page.
+        </section>
+      </main>
     );
-  }, [catalogItems, skillSearch]);
-
-  const resetSkillDialog = () => {
-    setSkillSearch('');
-    setSelectedSkill(null);
-    setIsCustom(false);
-    setProficiency('INTERMEDIATE');
-  };
-
-  const handleOpenEdit = () => {
-    setProfileForm({
-      name: userQuery.data?.name ?? '',
-      bio: userQuery.data?.bio ?? '',
-      college: userQuery.data?.college ?? '',
-      avatarUrl: userQuery.data?.avatarUrl ?? '',
-    });
-    setEditError('');
-    setIsEditOpen(true);
-  };
-
-  const handleAddOffered = () => {
-    const name = selectedSkill?.name ?? skillSearch.trim();
-    const category = selectedSkill?.category ?? (isCustom ? 'Custom' : undefined);
-    if (!name) {
-      setAddError('Enter a skill name');
-      return;
-    }
-    addOfferedMutation.mutate({ name, category, proficiency });
-  };
-
-  const handleAddWanted = () => {
-    const name = selectedSkill?.name ?? skillSearch.trim();
-    const category = selectedSkill?.category ?? (isCustom ? 'Custom' : undefined);
-    if (!name) {
-      setAddError('Enter a skill name');
-      return;
-    }
-    addWantedMutation.mutate({ name, category });
-  };
-
-  const isLoadingUser = userQuery.isLoading;
-  const isLoadingOffered = offeredQuery.isLoading;
-  const isLoadingWanted = wantedQuery.isLoading;
+  }
 
   return (
     <PageTransition>
-      <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-8">
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-6xl space-y-6">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <header className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-sm uppercase tracking-[0.3em] text-purple-300">Profile</p>
-              <h1 className="text-3xl font-bold text-white sm:text-4xl">Your SkillSwap Profile</h1>
-              <p className="mt-2 max-w-2xl text-sm text-gray-400">
-                Manage your public bio, avatar, and the skills you offer and want.
+              <h1 className="mt-1 text-3xl font-bold text-white sm:text-4xl">Your profile</h1>
+              <p className="mt-2 text-sm text-slate-400">
+                Your skills and availability decide who you are matched with.
               </p>
             </div>
-            <nav className="flex flex-wrap gap-2" aria-label="Profile actions">
-              <Link href="/dashboard" aria-label="Back to dashboard">
-                <Button variant="secondary" className="bg-white/5 text-white hover:bg-white/10">
-                  Back to Dashboard
-                </Button>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/users/${user.id}`}
+                className="inline-flex h-9 items-center rounded-lg bg-white/5 px-4 text-sm font-medium text-white hover:bg-white/10"
+              >
+                View public profile
               </Link>
-              <Button onClick={handleOpenEdit} className="bg-purple-700 text-white hover:bg-purple-600" aria-label="Edit your profile">
-                Edit Profile
+              <Button
+                onClick={() => {
+                  setEditKey((key) => key + 1);
+                  setIsEditOpen(true);
+                }}
+                className="h-9 bg-purple-700 px-4 text-white hover:bg-purple-600"
+              >
+                Edit profile
               </Button>
-            </nav>
+            </div>
           </header>
 
           <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
             <SlideUp>
-              <Card className="overflow-hidden glass-card border border-slate-800 shadow-lg shadow-violet-800/20">
-                <CardContent className="space-y-4 p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-purple-900 text-3xl font-semibold text-white">
-                      {isLoadingUser ? (
-                        <div className="skeleton h-20 w-20 rounded-3xl" />
-                      ) : userQuery.data?.avatarUrl ? (
-                        <img src={userQuery.data.avatarUrl} alt="avatar" className="h-20 w-20 rounded-3xl object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = userQuery.data?.name?.charAt(0).toUpperCase() ?? 'U'; }} />
-                      ) : (
-                        userQuery.data?.name?.charAt(0).toUpperCase() ?? 'U'
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      {isLoadingUser ? (
-                        <>
-                          <div className="skeleton h-5 w-36 rounded" />
-                          <div className="skeleton h-4 w-24 rounded" />
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-lg font-semibold text-white">{userQuery.data?.name}</p>
-                          <p className="text-sm text-slate-400">{userQuery.data?.college ?? 'No college listed'}</p>
-                        </>
-                      )}
-                      {!isLoadingUser && userQuery.data?.ratingAvg !== undefined && (
-                        <div className="flex items-center gap-1 text-amber-400 text-sm mt-1">
-                          <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden="true" />
-                          <span className="font-semibold">{(userQuery.data.ratingAvg ?? 0).toFixed(1)}</span>
-                          <span className="text-slate-400 text-xs ml-0.5">Rating</span>
-                        </div>
-                      )}
-                    </div>
+              <section className="glass-card space-y-5 rounded-3xl p-6" aria-label="About you">
+                <div className="flex items-center gap-4">
+                  <Avatar name={user.name} src={user.avatarUrl} size="xl" />
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-lg font-semibold text-white">{user.name}</p>
+                    <p className="truncate text-sm text-slate-400">{user.college ?? 'No college listed'}</p>
+                    <Rating value={user.ratingAvg} count={user.reviewCount} />
                   </div>
-                  <section className="rounded-3xl glass p-4 text-sm text-slate-300">
-                    {isLoadingUser ? (
-                      <>
-                        <div className="skeleton h-4 w-8 rounded mb-2" />
-                        <div className="skeleton h-4 w-full rounded" />
-                      </>
-                    ) : (
-                      <>
-                        <h2 className="font-medium text-slate-100">Bio</h2>
-                        <p className="mt-2 text-sm text-slate-300">{userQuery.data?.bio || 'No bio added yet.'}</p>
-                      </>
-                    )}
-                  </section>
+                </div>
 
-                  {!isLoadingUser && userQuery.data?.badges && userQuery.data.badges.length > 0 && (
-                    <section className="rounded-3xl glass p-4 text-sm">
-                      <h2 className="font-medium text-slate-100 mb-3 flex items-center gap-2">
-                        <Award className="h-4 w-4 text-purple-400" aria-hidden="true" />
-                        <span>Earned Badges</span>
-                      </h2>
-                      <div className="flex flex-wrap gap-2" role="list">
-                        {userQuery.data.badges.map((ub) => (
-                          <div
-                            key={ub.badge.id}
-                            className="group relative inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-950/40 px-3 py-1.5 text-xs text-purple-200 cursor-help"
-                            role="listitem"
-                          >
-                            <Award className="h-3.5 w-3.5 text-purple-400" aria-hidden="true" />
-                            <span className="font-medium">{ub.badge.name}</span>
-                            <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-xl border border-slate-800 glass p-2.5 text-center text-xs text-slate-300 opacity-0 transition-opacity duration-200 shadow-xl group-hover:opacity-100" role="tooltip">
-                              <p className="font-bold text-white mb-1">{ub.badge.name}</p>
-                              <p className="text-slate-400 text-[10px] leading-relaxed">{ub.badge.criteria}</p>
-                              <div className="absolute top-full left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 border-r border-b border-slate-800 glass" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
+                <div>
+                  <h2 className="text-sm font-medium text-slate-100">Bio</h2>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-300">
+                    {user.bio || 'No bio yet. Tell people what you love teaching and what you want to learn.'}
+                  </p>
+                </div>
+
+                <div>
+                  <h2 className="flex items-center gap-2 text-sm font-medium text-slate-100">
+                    <Award className="h-4 w-4 text-purple-400" aria-hidden="true" />
+                    Badges
+                  </h2>
+                  {user.badges.length > 0 ? (
+                    <ul className="mt-2 space-y-2">
+                      {user.badges.map(({ badge }) => (
+                        <li key={badge.id} className="rounded-2xl border border-purple-500/30 bg-purple-950/40 px-3 py-2">
+                          <p className="text-sm font-medium text-purple-100">{badge.name}</p>
+                          <p className="text-xs text-slate-400">{badge.criteria}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-sm text-slate-400">
+                      Complete your first session to earn the First Swap badge.
+                    </p>
                   )}
-                  <div className="grid gap-3 px-1 text-sm text-slate-400">
-                    <div className="flex items-center justify-between rounded-2xl glass px-4 py-3">
-                      <span>Avatar URL</span>
-                      <span className="text-slate-300 break-all max-w-[180px] text-right">
-                        {isLoadingUser ? <span className="skeleton h-4 w-20 inline-block rounded" /> : (userQuery.data?.avatarUrl || '—')}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-2xl glass px-4 py-3">
-                      <span>Email</span>
-                      <span className="text-slate-300">
-                        {isLoadingUser ? <span className="skeleton h-4 w-32 inline-block rounded" /> : userQuery.data?.email}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+
+                <dl className="text-sm">
+                  <dt className="text-slate-400">Email (only visible to you)</dt>
+                  <dd className="break-all text-slate-200">{user.email}</dd>
+                </dl>
+              </section>
             </SlideUp>
 
             <div className="space-y-6">
               <SlideUp>
-                <Card className="glass-card border border-slate-800 shadow-lg shadow-emerald-800/10">
-                  <CardHeader className="px-6 py-5">
-                    <CardTitle className="text-xl font-semibold text-white">Skills I Offer</CardTitle>
-                    <CardDescription className="text-sm text-slate-400">
-                      Add the skills you can teach or support others with.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 px-6 pb-6">
-                    <div className="flex flex-wrap gap-3" role="list">
-                      {isLoadingOffered ? (
-                        <>
-                          <div className="skeleton h-9 w-24 rounded-full" />
-                          <div className="skeleton h-9 w-32 rounded-full" />
-                          <div className="skeleton h-9 w-28 rounded-full" />
-                        </>
-                      ) : offeredQuery.data?.length ? (
-                        offeredQuery.data.map((skill) => (
-                          <div key={skill.skillId} className="group inline-flex items-center gap-2 rounded-full border border-purple-700/40 bg-purple-900/70 px-3 py-2 text-sm text-white shadow-sm shadow-purple-900/20" role="listitem">
-                            <span>{skill.name}</span>
-                            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[0.7rem] uppercase tracking-[0.12em] text-purple-100">
-                              {skill.proficiency.toLowerCase()}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removeOfferedMutation.mutate(skill.skillId)}
-                              className="rounded-full bg-white/10 p-1 text-sm text-slate-200 transition hover:bg-white/15"
-                              aria-label={`Remove offered skill ${skill.name}`}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-400">No offered skills yet.</p>
-                      )}
-                    </div>
-                  </CardContent>
-                  <CardFooter className="glass p-6">
-                    <Button onClick={() => { resetSkillDialog(); setIsAddOfferedOpen(true); }} className="w-full bg-emerald-600 text-white hover:bg-emerald-500" aria-label="Add a new offered skill">
-                      Add Offered Skill
-                    </Button>
-                  </CardFooter>
-                </Card>
+                <SkillsCard kind="offered" />
               </SlideUp>
-
               <SlideUp>
-                <Card className="glass-card border border-slate-800 shadow-lg shadow-violet-800/10">
-                  <CardHeader className="px-6 py-5">
-                    <CardTitle className="text-xl font-semibold text-white">Skills I Want</CardTitle>
-                    <CardDescription className="text-sm text-slate-400">
-                      Track skills you want to learn or swap for.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 px-6 pb-6">
-                    <div className="flex flex-wrap gap-3" role="list">
-                      {isLoadingWanted ? (
-                        <>
-                          <div className="skeleton h-9 w-28 rounded-full" />
-                          <div className="skeleton h-9 w-20 rounded-full" />
-                          <div className="skeleton h-9 w-36 rounded-full" />
-                        </>
-                      ) : wantedQuery.data?.length ? (
-                        wantedQuery.data.map((skill) => (
-                          <div key={skill.skillId} className="group inline-flex items-center gap-2 rounded-full border border-emerald-600/40 bg-emerald-900/70 px-3 py-2 text-sm text-white shadow-sm shadow-emerald-900/20" role="listitem">
-                            <span>{skill.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeWantedMutation.mutate(skill.skillId)}
-                              className="rounded-full bg-white/10 p-1 text-slate-200 transition hover:bg-white/15"
-                              aria-label={`Remove wanted skill ${skill.name}`}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-400">No wanted skills yet.</p>
-                      )}
-                    </div>
-                  </CardContent>
-                  <CardFooter className="glass p-6">
-                    <Button onClick={() => { resetSkillDialog(); setIsAddWantedOpen(true); }} className="w-full bg-purple-700 text-white hover:bg-purple-600" aria-label="Add a new wanted skill">
-                      Add Wanted Skill
-                    </Button>
-                  </CardFooter>
-                </Card>
+                <SkillsCard kind="wanted" />
               </SlideUp>
+              <SlideUp>
+                <AvailabilityCard user={user} />
+              </SlideUp>
+              {user.googleCalendarAvailable ? (
+                <SlideUp>
+                  <CalendarCard user={user} />
+                </SlideUp>
+              ) : null}
             </div>
           </div>
         </div>
 
-        <Dialog.Root open={isEditOpen} onOpenChange={setIsEditOpen} modal>
-          <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Portal>
-            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/40">
-              <div className="flex items-center justify-between gap-4">
-                <Dialog.Title className="text-xl font-semibold text-white">Edit Profile</Dialog.Title>
-                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close edit profile dialog">Close</Dialog.Close>
-              </div>
-              <Dialog.Description className="mt-2 text-sm text-slate-400">
-                Update your name, bio, college, and avatar URL.
-              </Dialog.Description>
-              <div className="mt-6 space-y-4">
-                <label htmlFor="profile-name" className="block text-sm text-slate-300">Name</label>
-                <Input id="profile-name" value={profileForm.name} onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Name" />
-                <label htmlFor="profile-bio" className="block text-sm text-slate-300">Bio</label>
-                <textarea
-                  id="profile-bio"
-                  value={profileForm.bio}
-                  onChange={(event) => setProfileForm((prev) => ({ ...prev, bio: event.target.value }))}
-                  className="min-h-[100px] w-full rounded-2xl border border-slate-800 glass p-3 text-sm text-white outline-none transition focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/20"
-                  placeholder="Tell others what you offer and what you want to learn"
-                />
-                <label htmlFor="profile-college" className="block text-sm text-slate-300">College</label>
-                <Input id="profile-college" value={profileForm.college} onChange={(event) => setProfileForm((prev) => ({ ...prev, college: event.target.value }))} placeholder="College or school" />
-                <label htmlFor="profile-avatar" className="block text-sm text-slate-300">Avatar URL</label>
-                <Input id="profile-avatar" value={profileForm.avatarUrl} onChange={(event) => setProfileForm((prev) => ({ ...prev, avatarUrl: event.target.value }))} placeholder="https://..." />
-                {editError ? <p className="text-sm text-red-400" role="alert">{editError}</p> : null}
-              </div>
-              <div className="mt-6 flex items-center justify-end gap-3">
-                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel editing profile">Cancel</Dialog.Close>
-                <Button onClick={() => updateProfileMutation.mutate(profileForm)} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Save profile changes">
-                  Save Profile
-                </Button>
-              </div>
-            </Dialog.Popup>
-          </Dialog.Portal>
-        </Dialog.Root>
-
-        <Dialog.Root open={isAddOfferedOpen} onOpenChange={setIsAddOfferedOpen} modal>
-          <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Portal>
-            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
-              <div className="flex items-center justify-between gap-4">
-                <Dialog.Title className="text-xl font-semibold text-white">Add Offered Skill</Dialog.Title>
-                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add offered skill dialog">Close</Dialog.Close>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill. Choose a proficiency level.</p>
-              <div className="mt-6 space-y-4">
-                <label htmlFor="offered-skill-search" className="block text-sm text-slate-300">Skill name</label>
-                <Input
-                  id="offered-skill-search"
-                  value={skillSearch}
-                  onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
-                  placeholder="e.g. Python, UI Design, Guitar"
-                />
-                <div className="grid gap-2" role="listbox" aria-label="Available skills">
-                  {filteredCatalog.slice(0, 6).map((item) => (
-                    <button
-                      type="button"
-                      key={`${item.category}-${item.name}`}
-                      onClick={() => {
-                        setSelectedSkill(item);
-                        setSkillSearch(item.name);
-                        setIsCustom(false);
-                      }}
-                      role="option"
-                      aria-selected={selectedSkill?.name === item.name}
-                      className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-purple-500 bg-purple-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-purple-500'}`}
-                    >
-                      <span className="font-semibold">{item.name}</span>
-                      <span className="block text-xs text-slate-400">{item.category}</span>
-                    </button>
-                  ))}
-                </div>
-                <label htmlFor="offered-proficiency" className="block text-sm text-slate-300">Proficiency</label>
-                <Select.Root value={proficiency} onValueChange={(value) => setProficiency(value ?? 'INTERMEDIATE')}>
-                  <Select.Trigger className="inline-flex h-11 w-full items-center justify-between rounded-2xl border border-slate-800 glass px-4 text-sm text-white outline-none focus:border-purple-500/70 focus:ring-2 focus:ring-purple-500/20" aria-label="Select proficiency level">
-                    <Select.Value placeholder="Select proficiency" />
-                    <Select.Icon className="text-slate-300" />
-                  </Select.Trigger>
-                  <Select.Portal>
-                    <Select.Positioner>
-                      <Select.Backdrop className="rounded-3xl bg-black/30" />
-                      <Select.Popup className="mt-2 w-full min-w-[220px] rounded-3xl border border-slate-800 glass-card p-2 shadow-2xl shadow-black/50">
-                        <Select.List className="space-y-1">
-                          {proficiencyOptions.map((option) => (
-                            <Select.Item key={option.value} value={option.value} className="rounded-2xl px-3 py-3 text-sm text-white transition hover:bg-purple-600/20 data-[selected=true]:bg-purple-700 data-[selected=true]:text-white">
-                              <Select.ItemText>{option.label}</Select.ItemText>
-                            </Select.Item>
-                          ))}
-                        </Select.List>
-                      </Select.Popup>
-                    </Select.Positioner>
-                  </Select.Portal>
-                </Select.Root>
-                {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
-              </div>
-              <div className="mt-6 flex items-center justify-end gap-3">
-                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding offered skill">Cancel</Dialog.Close>
-                <Button onClick={handleAddOffered} className="bg-purple-600 text-white hover:bg-purple-500" aria-label="Add offered skill">Add Skill</Button>
-              </div>
-            </Dialog.Popup>
-          </Dialog.Portal>
-        </Dialog.Root>
-
-        <Dialog.Root open={isAddWantedOpen} onOpenChange={setIsAddWantedOpen} modal>
-          <Dialog.Backdrop className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
-          <Dialog.Portal>
-            <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-white/10 glass-card p-6 shadow-2xl shadow-black/50">
-              <div className="flex items-center justify-between gap-4">
-                <Dialog.Title className="text-xl font-semibold text-white">Add Wanted Skill</Dialog.Title>
-                <Dialog.Close className="rounded-full bg-white/10 px-3 py-2 text-white transition hover:bg-white/20" aria-label="Close add wanted skill dialog">Close</Dialog.Close>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">Search the skill catalog or type a custom skill to add to your wanted list.</p>
-              <div className="mt-6 space-y-4">
-                <label htmlFor="wanted-skill-search" className="block text-sm text-slate-300">Skill name</label>
-                <Input
-                  id="wanted-skill-search"
-                  value={skillSearch}
-                  onChange={(event) => { setSkillSearch(event.target.value); setSelectedSkill(null); setIsCustom(true); }}
-                  placeholder="e.g. Public Speaking, Figma, Piano"
-                />
-                <div className="grid gap-2" role="listbox" aria-label="Available skills">
-                  {filteredCatalog.slice(0, 6).map((item) => (
-                    <button
-                      type="button"
-                      key={`${item.category}-${item.name}`}
-                      onClick={() => {
-                        setSelectedSkill(item);
-                        setSkillSearch(item.name);
-                        setIsCustom(false);
-                      }}
-                      role="option"
-                      aria-selected={selectedSkill?.name === item.name}
-                      className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${selectedSkill?.name === item.name ? 'border-emerald-500 bg-emerald-900/80 text-white' : 'border-slate-800 glass text-slate-200 hover:border-emerald-500'}`}
-                    >
-                      <span className="font-semibold">{item.name}</span>
-                      <span className="block text-xs text-slate-400">{item.category}</span>
-                    </button>
-                  ))}
-                </div>
-                {addError ? <p className="text-sm text-red-400" role="alert">{addError}</p> : null}
-              </div>
-              <div className="mt-6 flex items-center justify-end gap-3">
-                <Dialog.Close className="rounded-full bg-white/5 text-white hover:bg-white/10 px-4 py-3" aria-label="Cancel adding wanted skill">Cancel</Dialog.Close>
-                <Button onClick={handleAddWanted} className="bg-emerald-600 text-white hover:bg-emerald-500" aria-label="Add wanted skill">Add Skill</Button>
-              </div>
-            </Dialog.Popup>
-          </Dialog.Portal>
-        </Dialog.Root>
+        <EditProfileDialog key={editKey} user={user} open={isEditOpen} onOpenChange={setIsEditOpen} />
       </main>
     </PageTransition>
   );

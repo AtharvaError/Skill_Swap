@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
+import { CalendarModule } from '../calendar/calendar.module';
 import { UsersController } from './users.controller';
 import { LeaderboardController } from './leaderboard.controller';
+import { UsersService } from './users.service';
 
 @Module({
-  controllers: [UsersController, LeaderboardController]
+  imports: [CalendarModule],
+  controllers: [UsersController, LeaderboardController],
+  providers: [UsersService],
 })
 export class UsersModule {}

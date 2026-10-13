@@ -1,467 +1,536 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import DailyIframe from '@daily-co/daily-js';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Star } from 'lucide-react';
-import PageTransition, { SlideUp } from '@/components/PageTransition';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, CalendarPlus, Coins, ExternalLink, Star, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/errors';
+import { formatDateTime, googleCalendarLink } from '@/lib/format';
+import { useMe, useNow } from '@/lib/hooks';
+import type { Session } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { Avatar } from '@/components/Avatar';
+import PageTransition from '@/components/PageTransition';
+import { Stars } from '@/components/Rating';
+import { Button } from '@/components/ui/button';
 
-interface Session {
-  id: string;
-  scheduledAt: string;
-  durationMinutes: number;
-  meetingLink?: string;
-  status: string;
-  match: {
-    id: string;
-    userA: { id: string; name: string; email: string };
-    userB: { id: string; name: string; email: string };
-  };
-  reviews?: Array<{
-    id: string;
-    reviewerId: string;
-    revieweeId: string;
-    rating: number;
-    comment?: string;
-  }>;
+// The room opens a little early so both people can check their setup.
+const JOIN_EARLY_MS = 10 * 60 * 1000;
+// In a paid lesson the learner confirms it to release the payment. The
+// teacher may do so only after this long past the end (enforced by the API).
+const TEACHER_CONFIRM_GRACE_MS = 24 * 60 * 60 * 1000;
+
+const credits = (count: number) => `${count} credit${count === 1 ? '' : 's'}`;
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  return `${hours}h ${minutes}m ${seconds}s`;
 }
 
-interface CountdownState {
-  isStarted: boolean;
-  hasEnded: boolean;
-  timeLeft: string;
-}
-
-function calculateCountdown(scheduledAt: string, durationMinutes: number): CountdownState {
-  const now = new Date();
-  const sessionStart = new Date(scheduledAt);
-  const sessionEnd = new Date(sessionStart.getTime() + durationMinutes * 60000);
-
-  if (now >= sessionEnd) {
-    return { isStarted: true, hasEnded: true, timeLeft: 'Session ended' };
-  }
-
-  if (now >= sessionStart) {
-    return { isStarted: true, hasEnded: false, timeLeft: 'In progress' };
-  }
-
-  const diffMs = sessionStart.getTime() - now.getTime();
-  const hours = Math.floor(diffMs / (1000 * 60 * 60));
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-  return {
-    isStarted: false,
-    hasEnded: false,
-    timeLeft: `${hours}h ${minutes}m ${seconds}s`,
-  };
-}
-
-export default function SessionDetailPage({ params }: { params: { id: string } }) {
-  const { id: sessionId } = params;
+export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: sessionId } = use(params);
   const queryClient = useQueryClient();
-  const [countdown, setCountdown] = useState<CountdownState | null>(null);
+  const now = useNow(1000);
+  const { data: me } = useMe();
+
   const [showCall, setShowCall] = useState(false);
   const callFrameRef = useRef<ReturnType<typeof DailyIframe.createFrame> | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [hoverRating, setHoverRating] = useState(0);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const reviewModalRef = useRef<HTMLDivElement>(null);
 
   const { data: session, isLoading, isError } = useQuery({
     queryKey: ['session', sessionId],
-    queryFn: async () => {
-      const res = await api.get(`/sessions/${sessionId}`);
-      return res.data as Session;
-    },
+    queryFn: async () => (await api.get<Session>(`/sessions/${sessionId}`)).data,
+    retry: false,
   });
 
-  const { data: currentUser } = useQuery({
-    queryKey: ['me'],
-    queryFn: async () => {
-      const res = await api.get('/users/me');
-      return res.data;
-    },
-  });
-
-  useEffect(() => {
-    if (!session) return;
-
-    const updateCountdown = () => {
-      setCountdown(calculateCountdown(session.scheduledAt, session.durationMinutes));
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [session]);
-
-  useEffect(() => {
-    if (showReviewModal && reviewModalRef.current) {
-      reviewModalRef.current.focus();
+  const refresh = () => {
+    for (const key of ['sessions', 'overview', 'me', 'leaderboard', 'connections', 'credits', 'rewards']) {
+      queryClient.invalidateQueries({ queryKey: [key] });
     }
-  }, [showReviewModal]);
+  };
 
-  const handleExitCall = async () => {
-    setShowCall(false);
-    try {
-      await api.post(`/sessions/${sessionId}/complete`);
+  const completeMutation = useMutation({
+    mutationFn: async () => (await api.post<Session>(`/sessions/${sessionId}/complete`)).data,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['session', sessionId], updated);
+      refresh();
+      if (!updated.hasReviewed) setShowReviewModal(true);
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not mark the session as complete'));
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => (await api.post<Session>(`/sessions/${sessionId}/cancel`)).data,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['session', sessionId], updated);
+      refresh();
+      setConfirmingCancel(false);
+      toast.success('Session cancelled');
+    },
+    onError: (error: unknown) => {
+      toast.error(getApiErrorMessage(error, 'Could not cancel the session'));
+    },
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async () => {
+      await api.post(`/sessions/${sessionId}/review`, { rating, comment });
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-    } catch (e) {
-      console.error('Failed to complete session', e);
-    }
-    setShowReviewModal(true);
+      refresh();
+      closeReviewModal();
+      toast.success('Review submitted. Thank you!');
+    },
+    onError: (error: unknown) => {
+      const message = getApiErrorMessage(error, 'Failed to submit review');
+      setReviewError(message);
+      toast.error(message);
+    },
+  });
+
+  const closeReviewModal = () => {
+    setShowReviewModal(false);
+    setRating(0);
+    setHoverRating(0);
+    setComment('');
+    setReviewError('');
   };
 
   useEffect(() => {
-    if (!showCall || !session?.meetingLink || callFrameRef.current) return;
+    if (showReviewModal) reviewModalRef.current?.focus();
+  }, [showReviewModal]);
 
-    const initDaily = async () => {
-      try {
-        const iframeElement = document.getElementById('daily-frame');
-        if (!(iframeElement instanceof HTMLDivElement)) {
-          throw new Error('Daily iframe container not found');
-        }
+  const meetingLink = session?.meetingLink ?? null;
+  const isDailyRoom = Boolean(meetingLink?.includes('daily.co'));
+  const { mutate: completeSession } = completeMutation;
+  const isTeacher = session?.role === 'teacher';
 
-        const callFrame = DailyIframe.createFrame(iframeElement, {
-          showLeaveButton: true,
-          showFullscreenButton: true,
-        });
+  // Embedded Daily call. Leaving the call offers to wrap the session up.
+  useEffect(() => {
+    if (!showCall || !meetingLink || !isDailyRoom || callFrameRef.current) return;
 
-        callFrameRef.current = callFrame;
+    const container = document.getElementById('daily-frame');
+    if (!(container instanceof HTMLDivElement)) return;
 
-        callFrame.on('left-meeting', async () => {
-          setShowCall(false);
-          try {
-            await api.post(`/sessions/${sessionId}/complete`);
-            queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-          } catch (e) {
-            console.error('Failed to complete session', e);
-          }
-          setShowReviewModal(true);
-        });
+    const callFrame = DailyIframe.createFrame(container, {
+      showLeaveButton: true,
+      showFullscreenButton: true,
+      iframeStyle: { width: '100%', height: '100%', border: '0' },
+    });
+    callFrameRef.current = callFrame;
 
-        callFrame.on('error', (error: unknown) => {
-          console.error('Daily iframe error:', error);
-        });
-
-        await callFrame.join({ url: session.meetingLink });
-      } catch (error) {
-        console.error('Failed to initialize Daily iframe:', error);
-      }
-    };
-
-    initDaily();
+    callFrame.on('left-meeting', () => {
+      setShowCall(false);
+      // A paid lesson is confirmed by the learner, not by the teacher leaving.
+      if (!isTeacher) completeSession();
+    });
+    callFrame.on('error', () => {
+      toast.error('The video call ran into a problem. Try joining again.');
+      setShowCall(false);
+    });
+    callFrame.join({ url: meetingLink }).catch(() => {
+      toast.error('Could not join the video call.');
+      setShowCall(false);
+    });
 
     return () => {
-      if (callFrameRef.current) {
-        callFrameRef.current.destroy();
-        callFrameRef.current = null;
-      }
+      void callFrame.destroy();
+      callFrameRef.current = null;
     };
-  }, [showCall, session?.meetingLink, sessionId, queryClient]);
+  }, [showCall, meetingLink, isDailyRoom, completeSession, isTeacher]);
 
   if (isLoading) {
     return (
-      <PageTransition>
-        <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-8">
-          <div className="mx-auto max-w-6xl space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-2">
-                <div className="skeleton h-4 w-24 rounded" />
-                <div className="skeleton h-8 w-64 rounded" />
-              </div>
-              <div className="skeleton h-9 w-36 rounded-2xl" />
-            </div>
-            <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-              <div className="skeleton h-96 w-full rounded-3xl" />
-              <div className="skeleton h-48 w-full rounded-3xl" />
-            </div>
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto max-w-4xl space-y-6" role="status" aria-label="Loading session">
+          <div className="skeleton h-10 w-72" />
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+            <div className="skeleton h-80 rounded-3xl" />
+            <div className="skeleton h-48 rounded-3xl" />
           </div>
-        </main>
-      </PageTransition>
+        </div>
+      </main>
     );
   }
 
   if (isError || !session) {
     return (
       <PageTransition>
-        <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-8">
-          <div className="mx-auto max-w-6xl rounded-3xl border border-slate-800 glass-card p-6 shadow-lg shadow-slate-900/20">
-            <section className="rounded-3xl bg-rose-950/70 p-8 text-center text-rose-200" role="alert">
-              <p>Unable to load session details.</p>
-              <Link href="/sessions" aria-label="Back to sessions list" className="mt-4 inline-block rounded-2xl bg-purple-700 px-4 py-2 text-white hover:bg-purple-600">
-                Back to Sessions
-              </Link>
-            </section>
-          </div>
+        <main className="px-4 py-6 sm:px-6 sm:py-8">
+          <section className="mx-auto max-w-3xl glass-card rounded-3xl p-10 text-center" role="alert">
+            <p className="text-lg font-semibold text-white">Session not found</p>
+            <p className="mt-2 text-sm text-slate-400">It may have been removed, or you are not part of it.</p>
+            <Link
+              href="/sessions"
+              className="mt-6 inline-flex rounded-xl bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-600"
+            >
+              Back to sessions
+            </Link>
+          </section>
         </main>
       </PageTransition>
     );
   }
 
-  const handleReviewSubmit = async () => {
-    setIsSubmittingReview(true);
-    setReviewError('');
-    try {
-      await api.post(`/sessions/${sessionId}/review`, { rating, comment });
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['me'] });
-      setShowReviewModal(false);
-      setRating(0);
-      setComment('');
-      toast.success('Review submitted!');
-    } catch (err: unknown) {
-      const msg = getApiErrorMessage(err, 'Failed to submit review');
-      setReviewError(msg);
-      toast.error(msg);
-    } finally {
-      setIsSubmittingReview(false);
-    }
-  };
+  const partner = session.partner;
+  const partnerFirstName = partner.name.split(' ')[0];
+  const start = new Date(session.scheduledAt).getTime();
+  const end = start + session.durationMinutes * 60000;
+  const isScheduled = session.status === 'SCHEDULED';
+  const hasStarted = now >= start;
+  const hasEnded = now >= end;
+  const canJoin = isScheduled && Boolean(meetingLink) && now >= start - JOIN_EARLY_MS && !hasEnded;
+  const title = session.topic ?? 'SkillSwap session';
+  const teacherMustWait = isTeacher && now < end + TEACHER_CONFIRM_GRACE_MS;
+  const cost = credits(session.creditCost);
+  const lessonNote =
+    session.role === 'learner'
+      ? session.status === 'SCHEDULED'
+        ? `Paid lesson: ${cost} held from your balance. ${partnerFirstName} receives them when you confirm the lesson happened.`
+        : session.status === 'COMPLETED'
+          ? `You paid ${partnerFirstName} ${cost} for this lesson.`
+          : `Your ${cost} were refunded.`
+      : session.role === 'teacher'
+        ? session.status === 'SCHEDULED'
+          ? `Paid lesson: you earn ${cost} when ${partnerFirstName} confirms it happened.`
+          : session.status === 'COMPLETED'
+            ? `You earned ${cost} for teaching this lesson.`
+            : `${partnerFirstName}'s ${cost} were refunded.`
+        : null;
 
-  const participants = `${session.match.userA.name} & ${session.match.userB.name}`;
-  const sessionStart = new Date(session.scheduledAt);
-  const hasDailyRoom = !!session.meetingLink?.includes('daily.co');
-  const canJoinCall = countdown?.isStarted && !countdown?.hasEnded && hasDailyRoom;
-  const hasReviewed = session.reviews?.some((r) => r.reviewerId === currentUser?.id);
+  const statusLabel =
+    session.status === 'CANCELLED'
+      ? 'Cancelled'
+      : session.status === 'COMPLETED'
+        ? 'Completed'
+        : hasEnded
+          ? 'Ended — waiting to be marked complete'
+          : hasStarted
+            ? 'Happening now'
+            : `Starts in ${formatCountdown(start - now)}`;
 
   return (
     <PageTransition>
-      <main className="min-h-screen bg-background px-4 py-6 text-white sm:px-6 sm:py-8">
-        {showCall && hasDailyRoom ? (
-          <div className="fixed inset-0 z-50 bg-black">
+      <main className="px-4 py-6 sm:px-6 sm:py-8">
+        {showCall && isDailyRoom ? (
+          <div className="fixed inset-0 z-50 bg-black" role="dialog" aria-modal="true" aria-label="Video call">
             <div id="daily-frame" className="h-full w-full" />
-            <button
-              onClick={handleExitCall}
-              className="absolute right-4 top-4 z-60 rounded-2xl bg-rose-600 px-4 py-2 text-white hover:bg-rose-500"
-              aria-label="Exit video call"
-            >
-              Exit Call
-            </button>
           </div>
         ) : null}
 
-        <div className="mx-auto max-w-6xl rounded-3xl border border-slate-800 glass-card p-6 shadow-lg shadow-slate-900/20">
-          <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-purple-300">Session Details</p>
-              <h1 className="text-3xl font-bold text-white">{participants}</h1>
-              <p className="mt-2 text-sm text-slate-400">{sessionStart.toLocaleString()}</p>
+        <div className="mx-auto max-w-4xl space-y-6">
+          <Link href="/sessions" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            All sessions
+          </Link>
+
+          <header className="flex items-center gap-4">
+            <Avatar name={partner.name} src={partner.avatarUrl} size="lg" />
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-bold text-white sm:text-3xl">{title}</h1>
+              <p className="text-sm text-slate-400">
+                with{' '}
+                <Link href={`/users/${partner.id}`} className="text-slate-200 hover:underline">
+                  {partner.name}
+                </Link>{' '}
+                · {formatDateTime(session.scheduledAt)} · {session.durationMinutes} min
+              </p>
             </div>
-            <Link href="/sessions" aria-label="Back to sessions list" className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700">
-              Back to Sessions
-            </Link>
           </header>
 
-          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-            <SlideUp>
-              <section className="rounded-3xl border border-slate-800 glass p-6">
-                <div className="mb-6 space-y-4">
-                  <div className="rounded-3xl border border-slate-800 glass p-5">
-                    <p className="text-sm uppercase tracking-[0.26em] text-slate-500">Session Status</p>
-                    <p className="mt-2 text-2xl font-semibold text-white">{session.status}</p>
-                    <p className="mt-1 text-sm text-slate-400">Duration: {session.durationMinutes} minutes</p>
-                  </div>
-
-                  {countdown ? (
-                    <div className={`rounded-3xl border p-5 ${countdown.isStarted && !countdown.hasEnded ? 'border-emerald-500/50 bg-emerald-950/30' : 'border-amber-500/50 bg-amber-950/30'}`}>
-                      <p className="text-sm uppercase tracking-[0.26em] text-slate-400">
-                        {countdown.isStarted && !countdown.hasEnded ? 'Session Status' : 'Time Until Start'}
-                      </p>
-                      <p className={`mt-2 text-2xl font-semibold font-mono ${countdown.isStarted && !countdown.hasEnded ? 'text-emerald-300' : 'text-amber-300'}`}>
-                        {countdown.timeLeft}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-
-                {!hasDailyRoom ? (
-                  <div className="rounded-3xl border border-slate-700 glass p-6 text-center">
-                    <p className="text-sm text-slate-400">
-                      Daily video calling is not configured for this session.
-                    </p>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Ensure the Daily.co API key is configured in your environment.
-                    </p>
-                  </div>
-                ) : canJoinCall ? (
-                  <Button
-                    onClick={() => setShowCall(true)}
-                    className="w-full bg-emerald-600 py-6 text-lg font-semibold text-white hover:bg-emerald-500"
-                    aria-label="Join video call session"
-                  >
-                    Join Video Call
-                  </Button>
-                ) : session.status === 'COMPLETED' && !hasReviewed ? (
-                  <Button
-                    onClick={() => setShowReviewModal(true)}
-                    className="w-full bg-purple-700 py-6 text-lg font-semibold text-white hover:bg-purple-600"
-                    aria-label="Leave a review for this session"
-                  >
-                    Leave a Review
-                  </Button>
-                ) : session.status === 'SCHEDULED' && countdown?.hasEnded ? (
-                  <Button
-                    onClick={async () => {
-                      try {
-                        await api.post(`/sessions/${sessionId}/complete`);
-                        queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-                        setShowReviewModal(true);
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    }}
-                    className="w-full bg-emerald-600 py-6 text-lg font-semibold text-white hover:bg-emerald-500"
-                    aria-label="Complete session and leave review"
-                  >
-                    Complete Session & Leave Review
-                  </Button>
-                ) : (
-                  <div className="rounded-3xl border border-slate-700 glass p-6 text-center">
-                    <p className="text-sm text-slate-400">
-                      {session.status === 'COMPLETED' ? 'Session completed. Thank you for your feedback!' : 'Session hasn\'t started yet. Check back at the scheduled time.'}
-                    </p>
-                  </div>
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+            <section className="glass-card space-y-5 rounded-3xl p-6" aria-label="Session">
+              <div
+                className={cn(
+                  'rounded-2xl border p-5',
+                  session.status === 'CANCELLED'
+                    ? 'border-white/10 bg-white/[0.03]'
+                    : session.status === 'COMPLETED'
+                      ? 'border-purple-500/40 bg-purple-950/30'
+                      : hasStarted && !hasEnded
+                        ? 'border-emerald-500/50 bg-emerald-950/30'
+                        : 'border-amber-500/40 bg-amber-950/20',
                 )}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Status</p>
+                <p className="mt-2 font-mono text-xl font-semibold text-white" aria-live="off">
+                  {statusLabel}
+                </p>
+              </div>
 
-                <div className="mt-6 space-y-3">
-                  <h2 className="text-lg font-semibold text-white">Session Details</h2>
-                  <div className="rounded-2xl border border-slate-800 glass p-4 text-sm">
-                    <p className="text-slate-400">Match ID: <span className="text-white font-mono">{session.match.id}</span></p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-800 glass p-4 text-sm">
-                    <p className="text-slate-400">Participant A: <span className="text-white">{session.match.userA.name}</span></p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-800 glass p-4 text-sm">
-                    <p className="text-slate-400">Participant B: <span className="text-white">{session.match.userB.name}</span></p>
-                  </div>
-                </div>
-              </section>
-            </SlideUp>
+              {lessonNote ? (
+                <p className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 text-sm text-amber-100">
+                  <Coins className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  {lessonNote}
+                </p>
+              ) : null}
 
-            <SlideUp>
-              <aside className="space-y-4 rounded-3xl border border-slate-800 glass p-6">
-                <div className="space-y-2">
-                  <h2 className="text-lg font-semibold text-white">Quick Info</h2>
-                  <p className="text-sm text-slate-400">Ready to connect and learn together?</p>
+              {session.notes ? (
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Notes</h2>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-300">{session.notes}</p>
                 </div>
-                <div className="rounded-3xl glass p-4 text-sm text-slate-300">
-                  <p className="font-semibold text-white">Video Platform</p>
-                  <p className="mt-2 text-slate-400">
-                    {hasDailyRoom ? 'Daily.co Prebuilt' : 'Not configured'}
-                  </p>
+              ) : null}
+
+              {isScheduled ? (
+                <div className="space-y-3">
+                  {canJoin && isDailyRoom ? (
+                    <Button
+                      onClick={() => setShowCall(true)}
+                      className="h-12 w-full rounded-2xl bg-emerald-600 text-base font-semibold text-white hover:bg-emerald-500"
+                    >
+                      <Video className="h-5 w-5" aria-hidden="true" />
+                      Join video call
+                    </Button>
+                  ) : canJoin && meetingLink ? (
+                    <a
+                      href={meetingLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white hover:bg-emerald-500"
+                    >
+                      <Video className="h-5 w-5" aria-hidden="true" />
+                      Join video call
+                      <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                      <span className="sr-only">(opens in a new tab)</span>
+                    </a>
+                  ) : !hasEnded ? (
+                    <p className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-center text-sm text-slate-400">
+                      The video room opens 10 minutes before the start time.
+                    </p>
+                  ) : null}
+
+                  {hasStarted && teacherMustWait ? (
+                    <p className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
+                      {partnerFirstName} confirms this lesson to release your {cost}. If they haven&apos;t done so 24
+                      hours after it ends, you can confirm it here yourself.
+                    </p>
+                  ) : null}
+
+                  {hasStarted && !teacherMustWait ? (
+                    <Button
+                      onClick={() => completeSession()}
+                      disabled={completeMutation.isPending}
+                      className="h-11 w-full rounded-2xl bg-purple-700 text-white hover:bg-purple-600"
+                    >
+                      {completeMutation.isPending
+                        ? 'Saving…'
+                        : session.role === 'learner'
+                          ? `Confirm lesson and pay ${cost}`
+                          : 'Mark as complete and review'}
+                    </Button>
+                  ) : confirmingCancel ? (
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-500/30 bg-rose-950/30 p-4"
+                      role="alertdialog"
+                      aria-label="Cancel session"
+                    >
+                      <p className="text-sm text-rose-100">
+                        Cancel this session for both of you?
+                        {session.role ? ` The held ${cost} will be refunded.` : ''}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => cancelMutation.mutate()}
+                          disabled={cancelMutation.isPending}
+                          className="bg-rose-600 text-white hover:bg-rose-500"
+                        >
+                          {cancelMutation.isPending ? 'Cancelling…' : 'Yes, cancel'}
+                        </Button>
+                        <Button
+                          onClick={() => setConfirmingCancel(false)}
+                          className="bg-white/10 text-white hover:bg-white/20"
+                        >
+                          Keep it
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={() => setConfirmingCancel(true)}
+                      className="h-11 w-full rounded-2xl bg-white/5 text-slate-200 hover:bg-white/10"
+                    >
+                      {hasStarted && isTeacher ? `Cancel and refund ${partnerFirstName}` : 'Cancel session'}
+                    </Button>
+                  )}
                 </div>
-                <div className="rounded-3xl glass p-4 text-sm text-slate-300">
-                  <p className="font-semibold text-white">Features</p>
-                  <ul className="mt-2 space-y-1 text-slate-400">
-                    <li>✓ Camera & Microphone</li>
-                    <li>✓ Screen Share</li>
-                    <li>✓ Chat</li>
-                    <li>✓ Recording Ready</li>
+              ) : session.status === 'COMPLETED' && !session.hasReviewed ? (
+                <Button
+                  onClick={() => setShowReviewModal(true)}
+                  className="h-12 w-full rounded-2xl bg-purple-700 text-base font-semibold text-white hover:bg-purple-600"
+                >
+                  Leave a review for {partnerFirstName}
+                </Button>
+              ) : session.status === 'CANCELLED' ? (
+                <p className="text-sm text-slate-400">
+                  This session was cancelled.{' '}
+                  <Link href={`/schedule/${session.matchId}`} className="text-purple-300 hover:underline">
+                    Schedule a new one
+                  </Link>
+                  .
+                </p>
+              ) : null}
+
+              {session.reviews.length > 0 ? (
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Reviews</h2>
+                  <ul className="mt-2 space-y-3">
+                    {session.reviews.map((review) => (
+                      <li key={review.id} className="rounded-2xl bg-white/[0.04] p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-slate-200">
+                            {review.reviewerId === me?.id ? 'Your review' : `${partnerFirstName}'s review of you`}
+                          </p>
+                          <Stars rating={review.rating} />
+                        </div>
+                        {review.comment ? <p className="mt-2 text-sm text-slate-300">{review.comment}</p> : null}
+                      </li>
+                    ))}
                   </ul>
                 </div>
-              </aside>
-            </SlideUp>
+              ) : null}
+            </section>
+
+            <aside className="glass-card h-fit space-y-3 rounded-3xl p-6" aria-label="Session links">
+              <h2 className="text-lg font-semibold text-white">Before you meet</h2>
+              <Link
+                href={`/chat/${session.matchId}`}
+                className="flex items-center justify-center rounded-xl bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Message {partnerFirstName}
+              </Link>
+              {isScheduled ? (
+                <a
+                  href={
+                    session.googleHtmlLink ??
+                    googleCalendarLink({
+                      title: `SkillSwap: ${title} with ${partner.name}`,
+                      start: session.scheduledAt,
+                      durationMinutes: session.durationMinutes,
+                      details: session.notes ?? undefined,
+                      location: meetingLink,
+                    })
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10"
+                >
+                  <CalendarPlus className="h-4 w-4" aria-hidden="true" />
+                  {session.googleHtmlLink ? 'Open calendar event' : 'Add to Google Calendar'}
+                </a>
+              ) : null}
+              <p className="pt-2 text-xs leading-relaxed text-slate-500">
+                {isDailyRoom
+                  ? 'Video runs inside SkillSwap, with screen sharing and chat.'
+                  : 'Video opens in a new tab.'}
+              </p>
+            </aside>
           </div>
         </div>
 
-        {showReviewModal && (
+        {showReviewModal ? (
           <div
             ref={reviewModalRef}
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-labelledby="review-title"
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setShowReviewModal(false);
-                setRating(0);
-                setComment('');
-                setReviewError('');
-              }
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeReviewModal();
             }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm outline-none"
           >
-            <div className="w-full max-w-md rounded-3xl border border-slate-800 glass-card p-6 shadow-2xl shadow-purple-950/20">
-              <h2 id="review-title" className="text-2xl font-bold text-white">Leave a Review</h2>
+            <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[oklch(0.16_0.02_280)] p-6 shadow-2xl">
+              <h2 id="review-title" className="text-2xl font-bold text-white">
+                How was your session?
+              </h2>
               <p className="mt-2 text-sm text-slate-400">
-                Share your feedback about the session. Your review helps other participants and rewards mentors!
+                Your rating appears on {partnerFirstName}&apos;s profile and counts towards their badges.
               </p>
 
               <div className="mt-6 flex justify-center gap-2" role="radiogroup" aria-label="Rating">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button
                     key={star}
+                    type="button"
                     onClick={() => setRating(star)}
                     onMouseEnter={() => setHoverRating(star)}
                     onMouseLeave={() => setHoverRating(0)}
-                    className="p-1 text-slate-600 transition-colors hover:text-amber-400 focus-visible:ring-2 focus-visible:ring-purple-500 focus:outline-none"
-                    aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                    className="rounded-lg p-1 focus-visible:ring-2 focus-visible:ring-purple-500 focus:outline-none"
+                    aria-label={`${star} star${star > 1 ? 's' : ''}`}
                     role="radio"
-                    aria-checked={star <= rating}
+                    aria-checked={rating === star}
                   >
                     <Star
-                      className={`h-8 w-8 ${
-                        star <= (hoverRating || rating)
-                          ? 'fill-amber-400 text-amber-400'
-                          : 'text-slate-600'
-                      }`}
+                      aria-hidden="true"
+                      className={cn(
+                        'h-8 w-8 transition-colors',
+                        star <= (hoverRating || rating) ? 'fill-amber-400 text-amber-400' : 'text-slate-600',
+                      )}
                     />
                   </button>
                 ))}
               </div>
 
               <div className="mt-6">
-                <label htmlFor="review-comment" className="block text-sm font-medium text-slate-300">Comment (optional)</label>
+                <label htmlFor="review-comment" className="block text-sm font-medium text-slate-300">
+                  Comment (optional)
+                </label>
                 <textarea
                   id="review-comment"
                   value={comment}
-                  onChange={(e) => setComment(e.target.value)}
+                  onChange={(event) => setComment(event.target.value)}
                   rows={4}
-                  className="mt-2 w-full rounded-2xl border border-slate-800 glass p-4 text-sm text-white outline-none transition focus:border-purple-500/60 focus:ring-2 focus:ring-purple-500/20"
-                  placeholder="How was the session? What did you learn?"
+                  maxLength={1000}
+                  className="mt-2 w-full rounded-2xl border border-input bg-input/30 p-3 text-sm text-white outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  placeholder="What did you learn? What went well?"
                 />
               </div>
 
-              {reviewError && (
-                <p className="mt-4 text-sm text-rose-400" role="alert">{reviewError}</p>
-              )}
+              {reviewError ? (
+                <p className="mt-4 text-sm text-rose-400" role="alert">
+                  {reviewError}
+                </p>
+              ) : null}
 
               <div className="mt-6 flex items-center justify-end gap-3">
                 <button
-                  onClick={() => {
-                    setShowReviewModal(false);
-                    setRating(0);
-                    setComment('');
-                    setReviewError('');
-                  }}
-                  className="rounded-full bg-white/5 px-5 py-3 text-sm font-semibold text-white hover:bg-white/10"
-                  aria-label="Cancel review"
+                  type="button"
+                  onClick={closeReviewModal}
+                  className="rounded-xl bg-white/5 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/10"
                 >
-                  Cancel
+                  Not now
                 </button>
                 <button
-                  onClick={handleReviewSubmit}
-                  disabled={rating === 0 || isSubmittingReview}
-                  className="rounded-full bg-purple-700 px-6 py-3 text-sm font-semibold text-white hover:bg-purple-600 disabled:opacity-50"
-                  aria-label="Submit review"
+                  type="button"
+                  onClick={() => reviewMutation.mutate()}
+                  disabled={rating === 0 || reviewMutation.isPending}
+                  className="rounded-xl bg-purple-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-purple-600 disabled:opacity-50"
                 >
-                  {isSubmittingReview ? 'Submitting...' : 'Submit'}
+                  {reviewMutation.isPending ? 'Submitting…' : 'Submit review'}
                 </button>
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </main>
     </PageTransition>
   );
