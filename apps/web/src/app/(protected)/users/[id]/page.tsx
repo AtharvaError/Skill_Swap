@@ -10,6 +10,7 @@ import type { PublicProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/Avatar';
 import { ConnectionActions } from '@/components/ConnectionActions';
+import { SafetyActions } from '@/components/SafetyActions';
 import PageTransition from '@/components/PageTransition';
 import { Rating, Stars } from '@/components/Rating';
 
@@ -80,6 +81,10 @@ export default function UserProfilePage({ params }: { params: Promise<{ id: stri
                 >
                   Edit profile
                 </Link>
+              ) : profile.blockedByMe ? (
+                <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-300">
+                  You blocked {profile.name.split(' ')[0]}
+                </span>
               ) : (
                 <ConnectionActions
                   userId={profile.id}
@@ -95,7 +100,9 @@ export default function UserProfilePage({ params }: { params: Promise<{ id: stri
               <p className="mt-5 rounded-2xl bg-white/[0.04] px-4 py-2 text-xs text-slate-400">
                 This is how other people see your profile.
               </p>
-            ) : null}
+            ) : (
+              <SafetyActions userId={profile.id} name={profile.name} blocked={profile.blockedByMe} />
+            )}
           </header>
 
           <div className="grid gap-6 md:grid-cols-2">

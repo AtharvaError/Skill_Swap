@@ -26,6 +26,7 @@ export interface Me {
   reviewCount: number;
   hasGoogleCalendar: boolean;
   googleCalendarAvailable: boolean;
+  isAdmin: boolean;
   badges: UserBadge[];
 }
 
@@ -171,6 +172,7 @@ export interface PublicProfile extends UserSummary {
   availability: string[];
   createdAt: string;
   isMe: boolean;
+  blockedByMe: boolean;
   reviewCount: number;
   completedSessions: number;
   offeredSkills: OfferedSkill[];
@@ -255,6 +257,8 @@ export interface Redemption {
   title: string;
   cost: number;
   status: 'PENDING' | 'FULFILLED' | 'CANCELLED';
+  /** Set when fulfilled, e.g. the gift code or how to claim it. */
+  note: string | null;
   createdAt: string;
 }
 
@@ -265,4 +269,42 @@ export interface RewardsOverview {
   redeemable: number;
   catalog: Reward[];
   redemptions: Redemption[];
+}
+
+export type ReportReason = 'SPAM' | 'HARASSMENT' | 'INAPPROPRIATE' | 'NO_SHOW' | 'OTHER';
+
+export interface AdminPerson {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  suspendedAt: string | null;
+}
+
+export interface AdminSummary {
+  users: number;
+  suspendedUsers: number;
+  openReports: number;
+  pendingRedemptions: number;
+}
+
+export interface AdminReport {
+  id: string;
+  reason: ReportReason;
+  details: string | null;
+  status: 'OPEN' | 'RESOLVED' | 'DISMISSED';
+  createdAt: string;
+  reporter: AdminPerson;
+  reported: AdminPerson & { _count: { reportsReceived: number } };
+}
+
+export interface AdminUser extends AdminPerson {
+  credits: number;
+  createdAt: string;
+  reportCount: number;
+  isAdmin: boolean;
+}
+
+export interface AdminRedemption extends Redemption {
+  user: AdminPerson;
 }

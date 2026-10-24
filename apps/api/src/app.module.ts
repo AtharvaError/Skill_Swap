@@ -13,6 +13,8 @@ import { SessionsModule } from './sessions/sessions.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { CreditsModule } from './credits/credits.module';
 import { RewardsModule } from './rewards/rewards.module';
+import { SafetyModule } from './safety/safety.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { RewardsModule } from './rewards/rewards.module';
     CalendarModule,
     CreditsModule,
     RewardsModule,
+    SafetyModule,
+    AdminModule,
     ThrottlerModule.forRoot([
       {
         name: 'default',

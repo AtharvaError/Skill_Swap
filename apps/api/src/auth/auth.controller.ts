@@ -14,6 +14,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { generateToken } from './csrf.config';
 import {
   ACCESS_COOKIE,
@@ -76,6 +77,25 @@ export class AuthController {
 
     this.clearCookies(res);
     return { message: 'Logout successful' };
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(200)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto.email);
+    return {
+      message:
+        'If an account exists for that email, a reset link is on its way.',
+    };
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(200)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.password);
+    return { message: 'Password updated. You can sign in now.' };
   }
 
   @HttpCode(200)

@@ -264,6 +264,11 @@ export default function RewardsPage() {
                         <p className="text-sm text-slate-400">
                           {plural(redemption.cost, 'credit')} · {formatDateTime(redemption.createdAt)}
                         </p>
+                        {redemption.note ? (
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-emerald-200">
+                            {redemption.note}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-3">
                         <span className={cn('rounded-full px-3 py-1 text-xs font-semibold ring-1', status.tone)}>

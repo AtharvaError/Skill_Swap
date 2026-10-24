@@ -17,7 +17,7 @@ let failedQueue: Array<{ resolve: () => void; reject: (error: unknown) => void }
 const MAX_CSRF_RETRIES = 2;
 const SESSION_CHANGING_PATHS = ['/auth/login', '/auth/signup', '/auth/logout', '/auth/refresh'];
 // Pages that must stay reachable while signed out.
-const PUBLIC_PATHS = ['/', '/login', '/signup'];
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/forgot-password', '/reset-password'];
 
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;

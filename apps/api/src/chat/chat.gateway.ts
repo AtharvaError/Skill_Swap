@@ -89,9 +89,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayInit {
     });
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, name: true },
+      select: { id: true, name: true, suspendedAt: true },
     });
-    if (!user) throw new Error('unknown user');
+    if (!user || user.suspendedAt) throw new Error('unknown user');
 
     socket.data.userId = user.id;
     socket.data.userName = user.name;

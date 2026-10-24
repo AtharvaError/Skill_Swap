@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { userSummarySelect } from '../users/user-summary';
+import { visibleTo } from '../users/visibility';
 import { computeMatchScore } from './match-score';
 
 const MAX_SUGGESTIONS = 30;
@@ -72,7 +73,7 @@ export class MatchesService {
 
     const [otherUsers, matchRecords] = await Promise.all([
       this.prisma.user.findMany({
-        where: { id: { not: userId } },
+        where: { id: { not: userId }, ...visibleTo(userId) },
         select: {
           ...userSummarySelect,
           bio: true,
@@ -188,8 +189,10 @@ export class MatchesService {
       throw new BadRequestException('You cannot connect with yourself');
     }
 
-    const otherUser = await this.prisma.user.findUnique({
-      where: { id: targetUserId },
+    // Blocked (either way) and suspended people are indistinguishable from
+    // people who don't exist.
+    const otherUser = await this.prisma.user.findFirst({
+      where: { id: targetUserId, ...visibleTo(userId) },
       select: { id: true },
     });
     if (!otherUser) {

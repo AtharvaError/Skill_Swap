@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
+import { MailService } from '../mail/mail.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -26,6 +27,10 @@ describe('AuthService', () => {
         },
         {
           provide: CreditsService,
+          useValue: {},
+        },
+        {
+          provide: MailService,
           useValue: {},
         },
       ],

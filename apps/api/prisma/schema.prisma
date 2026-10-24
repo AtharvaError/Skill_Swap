@@ -9,33 +9,42 @@ datasource db {
 }
 
 model User {
-  id                 String   @id @default(uuid())
-  email              String   @unique
-  passwordHash       String
-  name               String
-  bio                String?
-  college            String?
-  avatarUrl          String?
-  ratingAvg          Float?   @default(0.0)
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  passwordHash         String
+  name                 String
+  bio                  String?
+  college              String?
+  avatarUrl            String?
+  ratingAvg            Float?    @default(0.0)
   // Weekly availability slots, e.g. "MON_EVENING". See src/users/availability.ts.
-  availability       String[] @default([])
+  availability         String[]  @default([])
   // Current credit balance. Only CreditsService changes it, always together
   // with a CreditTransaction row, so the ledger and the balance stay in step.
-  credits            Int      @default(0)
-  googleRefreshToken String?
-  refreshTokenHash   String?
-  createdAt          DateTime @default(now())
+  credits              Int       @default(0)
+  googleRefreshToken   String?
+  refreshTokenHash     String?
+  // Set by an admin. A suspended account cannot sign in or refresh tokens.
+  suspendedAt          DateTime?
+  // SHA-256 of the emailed reset token; the token itself is never stored.
+  passwordResetHash    String?   @unique
+  passwordResetExpires DateTime?
+  createdAt            DateTime  @default(now())
 
-  offeredSkills OfferedSkill[]
-  wantedSkills  WantedSkill[]
-  matchesAsA    Match[]             @relation("MatchUserA")
-  matchesAsB    Match[]             @relation("MatchUserB")
-  reviewsGiven  Review[]            @relation("ReviewAuthor")
-  reviewsGotten Review[]            @relation("ReviewTarget")
-  messages      Message[]
-  badges        UserBadge[]
-  creditHistory CreditTransaction[]
-  redemptions   Redemption[]
+  offeredSkills   OfferedSkill[]
+  wantedSkills    WantedSkill[]
+  matchesAsA      Match[]             @relation("MatchUserA")
+  matchesAsB      Match[]             @relation("MatchUserB")
+  reviewsGiven    Review[]            @relation("ReviewAuthor")
+  reviewsGotten   Review[]            @relation("ReviewTarget")
+  messages        Message[]
+  badges          UserBadge[]
+  creditHistory   CreditTransaction[]
+  redemptions     Redemption[]
+  blocksMade      Block[]             @relation("Blocker")
+  blockedBy       Block[]             @relation("Blocked")
+  reportsMade     Report[]            @relation("Reporter")
+  reportsReceived Report[]            @relation("Reported")
 }
 
 model Skill {
@@ -194,12 +203,59 @@ model Redemption {
   title     String
   cost      Int
   status    RedemptionStatus @default(PENDING)
+  // Shown to the member once fulfilled, e.g. the gift code or how to claim it.
+  note      String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// A block works both ways: neither person sees the other in Discover, and
+// they cannot connect, chat or schedule.
+model Block {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model Report {
+  id         String       @id @default(uuid())
+  reporterId String
+  reportedId String
+  reason     ReportReason
+  details    String?
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+  resolvedAt DateTime?
+
+  reporter User @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported User @relation("Reported", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([reportedId])
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  NO_SHOW
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
 }
 
 enum CreditType {

@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 describe('MatchesService connection requests', () => {
   const prisma = {
-    user: { findUnique: jest.fn() },
+    user: { findFirst: jest.fn() },
     match: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -22,7 +22,7 @@ describe('MatchesService connection requests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new MatchesService(prisma as unknown as PrismaService);
-    prisma.user.findUnique.mockResolvedValue({ id: 'bob' });
+    prisma.user.findFirst.mockResolvedValue({ id: 'bob' });
     prisma.match.update.mockImplementation(
       ({ data }: { data: { status: string } }) =>
         Promise.resolve({ id: 'm1', status: data.status }),
@@ -44,7 +44,7 @@ describe('MatchesService connection requests', () => {
     });
 
     it('rejects an unknown target user', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       await expect(service.connect('alice', 'ghost')).rejects.toBeInstanceOf(
         NotFoundException,
       );

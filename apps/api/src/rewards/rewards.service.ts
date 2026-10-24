@@ -27,6 +27,7 @@ export class RewardsService {
           title: true,
           cost: true,
           status: true,
+          note: true,
           createdAt: true,
         },
       }),
@@ -97,13 +98,28 @@ export class RewardsService {
     });
   }
 
-  /** Cancels a request that has not been fulfilled and refunds its cost. */
+  /** A member cancels their own pending request. */
   async cancel(userId: string, redemptionId: string) {
+    const redemption = await this.prisma.redemption.findUnique({
+      where: { id: redemptionId },
+      select: { userId: true },
+    });
+    if (!redemption || redemption.userId !== userId) {
+      throw new NotFoundException('Redemption not found');
+    }
+    return this.refund(redemptionId);
+  }
+
+  /**
+   * Cancels a request that has not been fulfilled and refunds its cost.
+   * Used by the member (via cancel) and by admins rejecting a request.
+   */
+  async refund(redemptionId: string) {
     return this.creditsService.transaction(async (tx) => {
       const redemption = await tx.redemption.findUnique({
         where: { id: redemptionId },
       });
-      if (!redemption || redemption.userId !== userId) {
+      if (!redemption) {
         throw new NotFoundException('Redemption not found');
       }
 
@@ -119,7 +135,7 @@ export class RewardsService {
       }
 
       await this.creditsService.grant(tx, {
-        userId,
+        userId: redemption.userId,
         amount: redemption.cost,
         type: 'REDEMPTION_REFUND',
         description: `Refund: ${redemption.title}`,

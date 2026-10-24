@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, Calendar, Coins, LayoutDashboard, LogOut, MessageSquare, Trophy, Users, Zap } from 'lucide-react';
+import { Bell, Calendar, Coins, LayoutDashboard, LogOut, MessageSquare, Shield, Trophy, Users, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useMe } from '@/lib/hooks';
@@ -86,6 +86,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex items-center gap-2">
+            {me?.isAdmin ? (
+              <Link
+                href="/admin"
+                aria-label="Admin"
+                title="Admin"
+                aria-current={isActive(pathname, '/admin') ? 'page' : undefined}
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-xl transition hover:bg-white/5 hover:text-white',
+                  isActive(pathname, '/admin') ? 'bg-white/10 text-white' : 'text-slate-300',
+                )}
+              >
+                <Shield className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            ) : null}
             <Link
               href="/rewards"
               aria-current={isActive(pathname, '/rewards') ? 'page' : undefined}

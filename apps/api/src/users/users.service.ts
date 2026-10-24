@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { userSummarySelect } from './user-summary';
+import { isAdminEmail } from '../admin/admin.guard';
 
 @Injectable()
 export class UsersService {
@@ -45,6 +46,7 @@ export class UsersService {
       reviewCount: _count.reviewsGotten,
       hasGoogleCalendar: Boolean(googleRefreshToken),
       googleCalendarAvailable: this.calendarService.isConfigured(),
+      isAdmin: isAdminEmail(user.email),
     };
   }
 
@@ -175,6 +177,7 @@ export class UsersService {
         ...userSummarySelect,
         bio: true,
         availability: true,
+        suspendedAt: true,
         createdAt: true,
         offeredSkills: {
           orderBy: { skill: { name: 'asc' } },
@@ -211,7 +214,33 @@ export class UsersService {
       },
     });
 
+    const isMe = viewerId === userId;
+    const blocks = isMe
+      ? []
+      : await this.prisma.block.findMany({
+          where: {
+            OR: [
+              { blockerId: viewerId, blockedId: userId },
+              { blockerId: userId, blockedId: viewerId },
+            ],
+          },
+          select: { blockerId: true },
+        });
+
     if (!user) throw new NotFoundException('User not found');
+    const {
+      offeredSkills,
+      wantedSkills,
+      reviewsGotten,
+      _count,
+      suspendedAt,
+      ...rest
+    } = user;
+
+    // Someone who blocked you, or a suspended account, looks like nobody.
+    if (!isMe && (suspendedAt || blocks.some((b) => b.blockerId === userId))) {
+      throw new NotFoundException('User not found');
+    }
 
     const [completedSessions, match] = await Promise.all([
       this.prisma.session.count({
@@ -233,12 +262,10 @@ export class UsersService {
           }),
     ]);
 
-    const { offeredSkills, wantedSkills, reviewsGotten, _count, ...rest } =
-      user;
-
     return {
       ...rest,
-      isMe: viewerId === userId,
+      isMe,
+      blockedByMe: blocks.some((b) => b.blockerId === viewerId),
       reviewCount: _count.reviewsGotten,
       completedSessions,
       offeredSkills: offeredSkills.map((item) => ({
@@ -269,6 +296,7 @@ export class UsersService {
 
   async getLeaderboard() {
     const users = await this.prisma.user.findMany({
+      where: { suspendedAt: null },
       select: {
         ...userSummarySelect,
         _count: { select: { badges: true, reviewsGotten: true } },

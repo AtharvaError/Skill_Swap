@@ -10,7 +10,7 @@ import { api, apiBaseURL } from '@/lib/api';
 import { AVAILABILITY_DAYS, AVAILABILITY_PERIODS, slotKey } from '@/lib/availability';
 import { getApiErrorMessage } from '@/lib/errors';
 import { useMe } from '@/lib/hooks';
-import type { Me, OfferedSkill, WantedSkill } from '@/lib/types';
+import type { Me, OfferedSkill, UserSummary, WantedSkill } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/Avatar';
 import PageTransition, { SlideUp } from '@/components/PageTransition';
@@ -519,6 +519,52 @@ function AvailabilityCard({ user }: { user: Me }) {
   );
 }
 
+/** People you've blocked are hidden everywhere else, so this is where to undo it. */
+function BlockedCard() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['blocks'],
+    queryFn: async () => (await api.get<Array<{ blockedAt: string; user: UserSummary }>>('/blocks')).data,
+  });
+
+  const unblock = useMutation({
+    mutationFn: async (userId: string) => {
+      await api.delete(`/users/${userId}/block`);
+    },
+    onSuccess: () => {
+      for (const key of ['blocks', 'matches', 'user']) queryClient.invalidateQueries({ queryKey: [key] });
+      toast.success('Unblocked');
+    },
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error, 'Could not unblock')),
+  });
+
+  if (!data?.length) return null;
+
+  return (
+    <section className="glass-card rounded-3xl p-6" aria-labelledby="blocked-heading">
+      <h2 id="blocked-heading" className="text-xl font-semibold text-white">
+        Blocked people
+      </h2>
+      <p className="mt-1 text-sm text-slate-400">They can&apos;t find you, connect, or message you.</p>
+      <ul className="mt-4 space-y-2">
+        {data.map(({ user }) => (
+          <li key={user.id} className="flex items-center gap-3 rounded-2xl bg-white/[0.04] p-3">
+            <Avatar name={user.name} src={user.avatarUrl} size="sm" />
+            <span className="min-w-0 flex-1 truncate text-sm text-white">{user.name}</span>
+            <Button
+              onClick={() => unblock.mutate(user.id)}
+              disabled={unblock.isPending}
+              className="h-8 bg-white/5 px-3 text-white hover:bg-white/10"
+            >
+              Unblock
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function CalendarCard({ user }: { user: Me }) {
   const queryClient = useQueryClient();
   const disconnect = useMutation({
@@ -688,6 +734,7 @@ export default function ProfilePage() {
                   <CalendarCard user={user} />
                 </SlideUp>
               ) : null}
+              <BlockedCard />
             </div>
           </div>
         </div>

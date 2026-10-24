@@ -166,6 +166,75 @@ NEWBIE="smoke-$(date +%s)@demo.skillswap.test"
 req newbie POST /auth/signup "{\"email\":\"$NEWBIE\",\"password\":\"$PW\",\"name\":\"Smoke Test\"}"; check "sign up" $([ "$STATUS" = 201 ]; echo $?) "$STATUS $BODY"
 req newbie GET /credits; check "new members get the welcome bonus" $([ "$(json 'j.balance===8 && j.redeemable===0')" = true ]; echo $?) "$(json 'JSON.stringify([j.balance,j.redeemable])')"
 
+echo "password reset"
+req anon POST /auth/forgot-password '{"email":"sara@demo.skillswap.test"}'; KNOWN="$STATUS $(json 'j.message')"
+req anon POST /auth/forgot-password '{"email":"nobody-here@example.com"}'; UNKNOWN="$STATUS $(json 'j.message')"
+check "forgot-password answers the same for known and unknown emails" $([ "$KNOWN" = "$UNKNOWN" ] && [ "$STATUS" = 200 ]; echo $?) "$KNOWN / $UNKNOWN"
+req anon POST /auth/reset-password "{\"token\":\"$(printf 'ab%.0s' $(seq 1 32))\",\"password\":\"another-password\"}"
+check "unknown reset token is rejected (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS $BODY"
+req anon POST /auth/reset-password '{"token":"not-a-token","password":"another-password"}'
+check "malformed reset token is rejected (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+login sara; check "requesting a reset does not lock the account" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"
+
+echo "admin access"
+req aarav GET /users/me; check "ADMIN_EMAILS member is flagged as admin" $([ "$(json 'j.isAdmin')" = true ]; echo $?) "$(json 'j.isAdmin')"
+req sara GET /users/me; check "others are not admins" $([ "$(json 'j.isAdmin')" = false ]; echo $?)
+req sara GET /admin/summary; check "non-admin gets 403 on /admin" $([ "$STATUS" = 403 ]; echo $?) "$STATUS"
+req anon GET /admin/summary; check "signed-out gets 401 on /admin" $([ "$STATUS" = 401 ]; echo $?) "$STATUS"
+req aarav GET /leaderboard
+id_of() { json "j.find(u=>u.name===\"$1\").id"; }
+ROHAN=$(id_of "Rohan Das"); DEV=$(id_of "Dev Patel"); MEERA=$(id_of "Meera Iyer"); KABIR=$(id_of "Kabir Singh"); AARAV_ID=$(id_of "Aarav Mehta")
+
+echo "report"
+req sara POST "/users/$ROHAN/report" '{"reason":"SPAM","details":"Smoke test report"}'; check "report a user" $([ "$STATUS" = 201 ] && [ "$(json 'j.status')" = OPEN ]; echo $?) "$STATUS $BODY"
+REPORT=$(json 'j.id')
+req sara POST "/users/$ROHAN/report" '{"reason":"RUDE"}'; check "unknown report reason is 400" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+req sara GET /users/me; SARA_ID=$(json 'j.id')
+req sara POST "/users/$SARA_ID/report" '{"reason":"OTHER"}'; check "cannot report yourself (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+
+echo "block"
+login meera; login dev
+req dev GET /credits; DEV_BALANCE=$(json 'j.balance'); DEV_HELD=$(json 'j.held')
+req meera POST "/users/$DEV/block"; check "block a connection" $([ "$STATUS" = 200 ]; echo $?) "$STATUS $BODY"
+req dev GET /credits; check "upcoming lesson cancelled and learner refunded" $([ "$(json "j.balance===$DEV_BALANCE+$DEV_HELD && j.held===0")" = true ]; echo $?) "$(json 'JSON.stringify([j.balance,j.held])') was [$DEV_BALANCE,$DEV_HELD]"
+req dev GET "/users/$MEERA"; check "blocked person sees 404 for the blocker" $([ "$STATUS" = 404 ]; echo $?) "$STATUS"
+req meera GET "/users/$DEV"; check "blocker can still see the profile, marked blocked" $([ "$STATUS" = 200 ] && [ "$(json 'j.blockedByMe && j.connection===null')" = true ]; echo $?) "$STATUS"
+req dev GET /matches; check "blocker hidden from the blocked person's Discover" $([ "$(json 'j.some(m=>m.name==="Meera Iyer")')" = false ]; echo $?)
+req meera GET /matches; check "blocked person hidden from the blocker's Discover" $([ "$(json 'j.some(m=>m.name==="Dev Patel")')" = false ]; echo $?)
+req dev POST "/matches/connect/$MEERA"; check "blocked person cannot reconnect (404)" $([ "$STATUS" = 404 ]; echo $?) "$STATUS"
+req meera GET /matches/connections; check "connection ended" $([ "$(json 'j.some(c=>c.user.name==="Dev Patel")')" = false ]; echo $?)
+req meera GET /blocks; check "blocked list" $([ "$(json 'j.length===1 && j[0].user.name==="Dev Patel"')" = true ]; echo $?) "$BODY"
+req meera DELETE "/users/$DEV/block"; check "unblock" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"
+req dev GET "/users/$MEERA"; check "profile visible again after unblock" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"
+
+echo "admin: reports"
+req aarav GET /admin/summary; check "admin summary" $([ "$(json 'j.openReports>=1 && j.users>=8')" = true ]; echo $?) "$BODY"
+req aarav GET /admin/reports; check "open reports include the new one" $([ "$(json "j.some(r=>r.id==='$REPORT' && r.reported.name==='Rohan Das' && r.reporter.name==='Sara Khan')")" = true ]; echo $?)
+req aarav POST "/admin/reports/$REPORT/resolve" '{"status":"RESOLVED"}'; check "resolve a report" $([ "$(json 'j.status')" = RESOLVED ]; echo $?) "$STATUS $BODY"
+req aarav POST "/admin/reports/$REPORT/resolve" '{"status":"DISMISSED"}'; check "cannot resolve twice (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+
+echo "admin: rewards"
+req aarav POST /rewards/profile-spotlight/redeem; R1=$(json 'j.id')
+req aarav POST "/admin/redemptions/$R1/reject"; check "admin rejects a request" $([ "$(json 'j.status')" = CANCELLED ]; echo $?) "$STATUS $BODY"
+req aarav GET /credits; check "rejected request is refunded" $([ "$(json 'j.redeemable')" = 5 ]; echo $?) "$(json 'j.redeemable')"
+req aarav POST /rewards/profile-spotlight/redeem; R2=$(json 'j.id')
+req aarav GET /admin/redemptions; check "pending requests listed with member" $([ "$(json "j.some(r=>r.id==='$R2' && r.user.name==='Aarav Mehta')")" = true ]; echo $?)
+req aarav POST "/admin/redemptions/$R2/fulfil" '{"note":"Spotlight starts Monday"}'; check "admin fulfils a request" $([ "$(json 'j.status')" = FULFILLED ]; echo $?) "$STATUS $BODY"
+req aarav POST "/rewards/redemptions/$R2/cancel"; check "fulfilled request cannot be cancelled (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+req aarav GET /rewards; check "member sees the fulfilment note" $([ "$(json "j.redemptions.find(r=>r.id==='$R2').note")" = "Spotlight starts Monday" ]; echo $?)
+
+echo "admin: suspension"
+login kabir; check "login kabir" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"
+req aarav POST "/admin/users/$KABIR/suspend"; check "suspend a user" $([ "$(json 'j.suspended')" = true ]; echo $?) "$STATUS $BODY"
+login kabir; check "suspended user cannot sign in (403)" $([ "$STATUS" = 403 ]; echo $?) "$STATUS $BODY"
+req kabir POST /auth/refresh; check "suspended user cannot refresh (401)" $([ "$STATUS" = 401 ]; echo $?) "$STATUS"
+req sara GET /matches; check "suspended user hidden from Discover" $([ "$(json 'j.some(m=>m.name==="Kabir Singh")')" = false ]; echo $?)
+req sara GET /leaderboard; check "suspended user hidden from leaderboard" $([ "$(json 'j.some(u=>u.name==="Kabir Singh")')" = false ]; echo $?)
+req aarav POST "/admin/users/$AARAV_ID/suspend"; check "admins cannot be suspended (403)" $([ "$STATUS" = 403 ]; echo $?) "$STATUS"
+req aarav GET "/admin/users?q=kabir"; check "admin user search" $([ "$(json 'j.length===1 && j[0].suspendedAt!==null')" = true ]; echo $?) "$BODY"
+req aarav POST "/admin/users/$KABIR/unsuspend"; check "unsuspend" $([ "$(json 'j.suspended')" = false ]; echo $?)
+login kabir; check "unsuspended user can sign in again" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"
+
 echo "token refresh + logout"
 OLD_REFRESH=$(grep jwt_refresh "$DIR/aarav.jar" | awk '{print $NF}')
 sleep 1

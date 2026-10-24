@@ -15,6 +15,8 @@ This document summarises the OWASP-aligned security measures implemented across 
 | Secure flag | Cookies are `Secure` in production and whenever `SameSite=None` |
 | SameSite | `Lax` in development. `None` in production, because the web app and API are normally on different sites; set `COOKIE_SAMESITE=strict` or `lax` when they share a site |
 | Password hashing | bcrypt with 10 salt rounds |
+| Password reset | Single-use, one-hour links. Only a SHA-256 of the token is stored. Requesting a link gives the same answer whether or not the email exists, and resetting signs the account out everywhere |
+| Suspension | Admins can suspend accounts: sign-in and token refresh are refused, and the account disappears from Discover, the leaderboard and chat. An access token already issued stays valid for up to 15 minutes |
 | Startup validation | Server refuses to start if `JWT_SECRET`, `JWT_REFRESH_SECRET` or `CSRF_SECRET` are missing or hold placeholder values, or if `DATABASE_URL` is not a PostgreSQL URL |
 
 Refresh tokens are deliberately **not** hashed with bcrypt: bcrypt only reads the first 72 bytes of its input, which are identical for every JWT issued to the same user, so old tokens would keep matching.
@@ -71,6 +73,10 @@ Applied via `@nestjs/throttler`, per client IP. In production the API trusts one
 | `POST /matches/connect/:userId` | 20 requests | 60 seconds |
 | `POST /skills/offered` | 20 requests | 60 seconds |
 | `POST /skills/wanted` | 20 requests | 60 seconds |
+| `POST /auth/forgot-password` | 5 requests | 60 seconds |
+| `POST /auth/reset-password` | 5 requests | 60 seconds |
+| `POST /users/:id/report` | 5 requests | 60 seconds |
+| `POST /users/:id/block` | 20 requests | 60 seconds |
 | `POST /rewards/:rewardId/redeem` | 10 requests | 60 seconds |
 | `POST /rewards/redemptions/:id/cancel` | 10 requests | 60 seconds |
 
@@ -121,6 +127,15 @@ WebSocket chat events are not rate limited.
 Known limits before rewards carry real value: nothing verifies that a lesson actually took place, and a group of colluding accounts can still move their sign-up bonuses to one member by booking lessons with them. Add proof of attendance, earning caps and a minimum account age before issuing anything with cash value.
 
 **Files:** `apps/api/src/credits/`, `apps/api/src/rewards/`, `apps/api/src/sessions/sessions.service.ts`
+
+---
+
+## 6b. Moderation
+
+- Members can report and block each other. Blocks apply both ways through one shared rule (`apps/api/src/users/visibility.ts`) used by Discover, connecting and profiles; someone who blocked you, or a suspended account, returns 404.
+- `/admin` routes require a signed-in user whose email is in `ADMIN_EMAILS`. Admins cannot be suspended.
+
+**Files:** `apps/api/src/safety/`, `apps/api/src/admin/`
 
 ---
 
