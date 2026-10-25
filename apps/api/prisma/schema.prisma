@@ -194,6 +194,22 @@ model CreditTransaction {
   @@index([userId, createdAt])
 }
 
+// The rewards catalogue, managed by admins in the admin panel.
+model Reward {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  category    String
+  // In credits. One credit is 15 minutes of teaching.
+  cost        Int
+  // How many are left; null means unlimited.
+  stock       Int?
+  // Hidden rewards stay in the database so past redemptions keep their history.
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
 model Redemption {
   id        String           @id @default(uuid())
   userId    String

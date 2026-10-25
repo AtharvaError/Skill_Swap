@@ -8,6 +8,7 @@ import { Prisma, RedemptionStatus, ReportStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RewardsService } from '../rewards/rewards.service';
 import { isAdminEmail } from './admin.guard';
+import { CreateRewardDto, UpdateRewardDto } from './admin.dto';
 
 const personSelect = {
   id: true,
@@ -153,5 +154,39 @@ export class AdminService {
 
   rejectRedemption(id: string) {
     return this.rewardsService.refund(id);
+  }
+
+  /** Every reward, including hidden ones, with how often each was redeemed. */
+  async listRewards() {
+    const [rewards, counts] = await Promise.all([
+      this.prisma.reward.findMany({
+        orderBy: [{ active: 'desc' }, { cost: 'asc' }, { title: 'asc' }],
+      }),
+      this.prisma.redemption.groupBy({
+        by: ['rewardId'],
+        where: { status: { not: 'CANCELLED' } },
+        _count: { _all: true },
+      }),
+    ]);
+    return rewards.map((reward) => ({
+      ...reward,
+      redeemed:
+        counts.find((row) => row.rewardId === reward.id)?._count._all ?? 0,
+    }));
+  }
+
+  createReward(dto: CreateRewardDto) {
+    return this.prisma.reward.create({
+      data: { ...dto, stock: dto.stock ?? null },
+    });
+  }
+
+  async updateReward(id: string, dto: UpdateRewardDto) {
+    const exists = await this.prisma.reward.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Reward not found');
+    return this.prisma.reward.update({ where: { id }, data: dto });
   }
 }

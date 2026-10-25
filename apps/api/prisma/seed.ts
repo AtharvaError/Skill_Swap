@@ -174,6 +174,8 @@ async function reset(prisma: PrismaClient) {
     where: { email: { endsWith: `@${DEMO_DOMAIN}` } },
   });
   console.log(`Removed ${count} demo account(s).`);
+  // Rewards created by test/smoke.sh.
+  await prisma.reward.deleteMany({ where: { category: 'Smoke test' } });
 }
 
 async function seed(prisma: PrismaClient) {

@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
-import { REWARDS } from './rewards.catalog';
 
 @Injectable()
 export class RewardsService {
@@ -15,8 +14,20 @@ export class RewardsService {
   ) {}
 
   async list(userId: string) {
-    const [totals, redemptions] = await Promise.all([
+    const [totals, catalog, redemptions] = await Promise.all([
       this.creditsService.getTotals(userId),
+      this.prisma.reward.findMany({
+        where: { active: true },
+        orderBy: [{ cost: 'asc' }, { title: 'asc' }],
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          cost: true,
+          stock: true,
+        },
+      }),
       this.prisma.redemption.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
@@ -34,25 +45,25 @@ export class RewardsService {
     ]);
 
     return {
-      // Rewards are not being issued yet; the web app says so prominently.
-      preview: true,
       balance: totals.balance,
       redeemable: totals.redeemable,
-      catalog: REWARDS,
+      catalog,
       redemptions,
     };
   }
 
   /**
-   * Records a redemption request and deducts its cost. Nothing is issued
-   * automatically: the request stays PENDING until someone fulfils it, and
-   * the member can cancel it for a refund in the meantime.
+   * Records a redemption request, deducts its cost and takes one from
+   * stock. An admin fulfils it from the admin panel; until then the member
+   * can cancel it for a refund.
    */
   async redeem(userId: string, rewardId: string) {
-    const reward = REWARDS.find((item) => item.id === rewardId);
-    if (!reward) throw new NotFoundException('Reward not found');
-
     return this.creditsService.transaction(async (tx) => {
+      const reward = await tx.reward.findFirst({
+        where: { id: rewardId, active: true },
+      });
+      if (!reward) throw new NotFoundException('Reward not found');
+
       // Serialise this member's redemptions: two at once must not both pass
       // the redeemable check below.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
@@ -67,6 +78,17 @@ export class RewardsService {
             ? `Only credits earned by teaching can be redeemed. You have ${redeemable} of the ${reward.cost} needed.`
             : `You need ${reward.cost} redeemable credits and have ${redeemable}.`,
         );
+      }
+
+      if (reward.stock !== null) {
+        // Conditional decrement: the last one can only be claimed once.
+        const { count } = await tx.reward.updateMany({
+          where: { id: reward.id, stock: { gt: 0 } },
+          data: { stock: { decrement: 1 } },
+        });
+        if (count === 0) {
+          throw new BadRequestException(`${reward.title} is out of stock`);
+        }
       }
 
       const redemption = await tx.redemption.create({
@@ -113,6 +135,7 @@ export class RewardsService {
   /**
    * Cancels a request that has not been fulfilled and refunds its cost.
    * Used by the member (via cancel) and by admins rejecting a request.
+   * The reward goes back into stock.
    */
   async refund(redemptionId: string) {
     return this.creditsService.transaction(async (tx) => {
@@ -133,6 +156,12 @@ export class RewardsService {
           `A ${redemption.status.toLowerCase()} redemption cannot be cancelled`,
         );
       }
+
+      // Put it back in stock (a no-op for unlimited or since-deleted rewards).
+      await tx.reward.updateMany({
+        where: { id: redemption.rewardId, stock: { not: null } },
+        data: { stock: { increment: 1 } },
+      });
 
       await this.creditsService.grant(tx, {
         userId: redemption.userId,

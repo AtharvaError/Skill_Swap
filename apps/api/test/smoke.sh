@@ -150,7 +150,7 @@ req sara POST "/sessions/$LESSON2/cancel"; check "cancel a booked lesson" $([ "$
 req sara GET /credits; check "cancelled lesson is refunded in full" $([ "$(json 'j.balance===10 && j.held===0')" = true ]; echo $?) "$(json 'JSON.stringify([j.balance,j.held])')"
 
 echo "rewards"
-req aarav GET /rewards; check "rewards catalogue" $([ "$(json 'j.preview===true && j.catalog.length===4 && j.redeemable===5')" = true ]; echo $?) "$STATUS $BODY"
+req aarav GET /rewards; check "rewards catalogue" $([ "$(json 'j.catalog.length===4 && j.catalog[0].id==="profile-spotlight" && j.redeemable===5')" = true ]; echo $?) "$STATUS $BODY"
 req sara POST /rewards/profile-spotlight/redeem; check "bonus credits cannot be redeemed (400)" $([ "$STATUS" = 400 ] && [ "$(json 'j.message.includes("teaching")')" = true ]; echo $?) "$STATUS $BODY"
 req aarav POST /rewards/play-gift-code/redeem; check "cannot redeem more than is redeemable (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS $BODY"
 req aarav POST /rewards/no-such-reward/redeem; check "unknown reward is 404" $([ "$STATUS" = 404 ]; echo $?) "$STATUS"
@@ -222,6 +222,25 @@ req aarav GET /admin/redemptions; check "pending requests listed with member" $(
 req aarav POST "/admin/redemptions/$R2/fulfil" '{"note":"Spotlight starts Monday"}'; check "admin fulfils a request" $([ "$(json 'j.status')" = FULFILLED ]; echo $?) "$STATUS $BODY"
 req aarav POST "/rewards/redemptions/$R2/cancel"; check "fulfilled request cannot be cancelled (400)" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
 req aarav GET /rewards; check "member sees the fulfilment note" $([ "$(json "j.redemptions.find(r=>r.id==='$R2').note")" = "Spotlight starts Monday" ]; echo $?)
+
+echo "admin: catalogue"
+req aarav GET /admin/rewards; check "admin lists the catalogue" $([ "$(json 'j.length>=4 && j.some(r=>r.id==="play-gift-code" && r.active)')" = true ]; echo $?) "$STATUS"
+req sara GET /admin/rewards; check "non-admin cannot list the catalogue (403)" $([ "$STATUS" = 403 ]; echo $?) "$STATUS"
+req aarav POST /admin/rewards '{"title":"Smoke sticker pack","description":"Limited test reward","category":"Smoke test","cost":1,"stock":1}'
+check "admin creates a reward with stock" $([ "$STATUS" = 201 ] && [ "$(json 'j.stock===1 && j.active===true')" = true ]; echo $?) "$STATUS $BODY"
+STICKER=$(json 'j.id')
+req aarav POST /admin/rewards '{"title":"","description":"x","category":"x","cost":0}'; check "invalid reward is 400" $([ "$STATUS" = 400 ]; echo $?) "$STATUS"
+req sara GET /rewards; check "new reward appears for members with stock" $([ "$(json "j.catalog.some(r=>r.id==='$STICKER' && r.stock===1)")" = true ]; echo $?)
+req aarav POST "/rewards/$STICKER/redeem"; check "redeem the last one" $([ "$STATUS" = 201 ]; echo $?) "$STATUS $BODY"
+STICKER_R=$(json 'j.id')
+req aarav POST "/rewards/$STICKER/redeem"; check "out of stock is 400" $([ "$STATUS" = 400 ] && [ "$(json 'j.message.includes("out of stock")')" = true ]; echo $?) "$STATUS $BODY"
+req aarav POST "/admin/redemptions/$STICKER_R/reject"; check "reject the request" $([ "$(json 'j.status')" = CANCELLED ]; echo $?)
+req sara GET /rewards; check "rejected request goes back into stock" $([ "$(json "j.catalog.find(r=>r.id==='$STICKER').stock")" = 1 ]; echo $?)
+req aarav PATCH "/admin/rewards/$STICKER" '{"cost":2,"stock":null}'; check "edit price and make unlimited" $([ "$(json 'j.cost===2 && j.stock===null')" = true ]; echo $?) "$STATUS $BODY"
+req aarav PATCH "/admin/rewards/$STICKER" '{"active":false}'; check "hide a reward" $([ "$(json 'j.active')" = false ]; echo $?)
+req sara GET /rewards; check "hidden reward disappears for members" $([ "$(json "j.catalog.some(r=>r.id==='$STICKER')")" = false ]; echo $?)
+req aarav POST "/rewards/$STICKER/redeem"; check "hidden reward cannot be redeemed (404)" $([ "$STATUS" = 404 ]; echo $?) "$STATUS"
+req aarav GET /admin/rewards; check "admin still sees the hidden reward" $([ "$(json "j.find(r=>r.id==='$STICKER').active===false")" = true ]; echo $?)
 
 echo "admin: suspension"
 login kabir; check "login kabir" $([ "$STATUS" = 200 ]; echo $?) "$STATUS"

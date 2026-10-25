@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Patch,
   Param,
   ParseEnumPipe,
   ParseUUIDPipe,
@@ -14,7 +15,12 @@ import { RedemptionStatus, ReportStatus } from '@prisma/client';
 import { AuthGuard } from '../auth/auth.guard';
 import { UserId } from '../auth/current-user.decorator';
 import { AdminGuard } from './admin.guard';
-import { FulfilRedemptionDto, ResolveReportDto } from './admin.dto';
+import {
+  CreateRewardDto,
+  FulfilRedemptionDto,
+  ResolveReportDto,
+  UpdateRewardDto,
+} from './admin.dto';
 import { AdminService } from './admin.service';
 
 @Controller('admin')
@@ -84,5 +90,21 @@ export class AdminController {
   @Post('redemptions/:id/reject')
   reject(@Param('id', ParseUUIDPipe) id: string) {
     return this.adminService.rejectRedemption(id);
+  }
+
+  @Get('rewards')
+  listRewards() {
+    return this.adminService.listRewards();
+  }
+
+  @Post('rewards')
+  createReward(@Body() dto: CreateRewardDto) {
+    return this.adminService.createReward(dto);
+  }
+
+  // Reward ids are uuids, or slugs for the rewards carried over from code.
+  @Patch('rewards/:id')
+  updateReward(@Param('id') id: string, @Body() dto: UpdateRewardDto) {
+    return this.adminService.updateReward(id, dto);
   }
 }

@@ -9,7 +9,14 @@ import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/errors';
 import { formatDateTime } from '@/lib/format';
 import { useDebounced, useMe } from '@/lib/hooks';
-import type { AdminRedemption, AdminReport, AdminSummary, AdminUser, ReportReason } from '@/lib/types';
+import type {
+  AdminRedemption,
+  AdminReport,
+  AdminReward,
+  AdminSummary,
+  AdminUser,
+  ReportReason,
+} from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/Avatar';
 import PageTransition from '@/components/PageTransition';
@@ -27,6 +34,7 @@ const REASON_LABELS: Record<ReportReason, string> = {
 const TABS = [
   { key: 'reports', label: 'Reports' },
   { key: 'rewards', label: 'Reward requests' },
+  { key: 'catalogue', label: 'Catalogue' },
   { key: 'users', label: 'Users' },
 ] as const;
 type Tab = (typeof TABS)[number]['key'];
@@ -213,6 +221,154 @@ function RewardsTab() {
   );
 }
 
+type RewardForm = { title: string; category: string; description: string; cost: string; stock: string };
+
+const toForm = (reward?: AdminReward): RewardForm => ({
+  title: reward?.title ?? '',
+  category: reward?.category ?? '',
+  description: reward?.description ?? '',
+  cost: reward ? String(reward.cost) : '',
+  stock: reward?.stock === null || reward?.stock === undefined ? '' : String(reward.stock),
+});
+
+/** Blank stock means unlimited. */
+const fromForm = (form: RewardForm) => ({
+  title: form.title,
+  category: form.category,
+  description: form.description,
+  cost: Number(form.cost),
+  stock: form.stock.trim() === '' ? null : Number(form.stock),
+});
+
+function RewardFields({ form, onChange, idPrefix }: { form: RewardForm; onChange: (form: RewardForm) => void; idPrefix: string }) {
+  const field = (key: keyof RewardForm) => ({
+    id: `${idPrefix}-${key}`,
+    value: form[key],
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      onChange({ ...form, [key]: event.target.value }),
+  });
+  const label = (key: keyof RewardForm, text: string) => (
+    <label htmlFor={`${idPrefix}-${key}`} className="text-xs text-slate-400">
+      {text}
+    </label>
+  );
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1">
+        {label('title', 'Title')}
+        <Input required maxLength={80} className="h-9" {...field('title')} />
+      </div>
+      <div className="space-y-1">
+        {label('category', 'Category')}
+        <Input required maxLength={40} className="h-9" {...field('category')} />
+      </div>
+      <div className="space-y-1 sm:col-span-2">
+        {label('description', 'Description')}
+        <textarea
+          required
+          maxLength={300}
+          rows={2}
+          className="w-full rounded-lg border border-input bg-input/30 p-2 text-sm text-white outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          {...field('description')}
+        />
+      </div>
+      <div className="space-y-1">
+        {label('cost', 'Cost (credits)')}
+        <Input required type="number" min={1} max={100000} className="h-9" {...field('cost')} />
+      </div>
+      <div className="space-y-1">
+        {label('stock', 'Stock (blank for unlimited)')}
+        <Input type="number" min={0} max={1000000} className="h-9" {...field('stock')} />
+      </div>
+    </div>
+  );
+}
+
+function CatalogueRow({ reward }: { reward: AdminReward }) {
+  const [form, setForm] = useState(() => toForm(reward));
+  const dirty = JSON.stringify(form) !== JSON.stringify(toForm(reward));
+  const save = useAdminAction(
+    (changes: Record<string, unknown>) => api.patch(`/admin/rewards/${reward.id}`, changes),
+    'Reward updated',
+  );
+
+  return (
+    <li className={cn('glass-card rounded-3xl p-5', !reward.active && 'opacity-60')}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          save.mutate(fromForm(form));
+        }}
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          {reward.active ? null : (
+            <span className="rounded-full bg-slate-800 px-2 py-0.5 font-semibold text-slate-300">Hidden</span>
+          )}
+          <span>
+            Redeemed {reward.redeemed} time{reward.redeemed === 1 ? '' : 's'}
+          </span>
+        </div>
+        <RewardFields form={form} onChange={setForm} idPrefix={`reward-${reward.id}`} />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="submit" disabled={!dirty || save.isPending} className="bg-emerald-600 text-white hover:bg-emerald-500">
+            Save changes
+          </Button>
+          <Button
+            type="button"
+            onClick={() => save.mutate({ active: !reward.active })}
+            disabled={save.isPending}
+            className="bg-white/5 text-white hover:bg-white/10"
+          >
+            {reward.active ? 'Hide from members' : 'Show to members'}
+          </Button>
+        </div>
+      </form>
+    </li>
+  );
+}
+
+function CatalogueTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'rewards'],
+    queryFn: async () => (await api.get<AdminReward[]>('/admin/rewards')).data,
+  });
+  const [draft, setDraft] = useState(() => toForm());
+  const create = useAdminAction(async () => {
+    await api.post('/admin/rewards', fromForm(draft));
+    setDraft(toForm());
+  }, 'Reward added');
+
+  return (
+    <div className="space-y-6">
+      <form
+        className="glass-card space-y-4 rounded-3xl p-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          create.mutate(undefined);
+        }}
+      >
+        <h2 className="text-lg font-semibold text-white">Add a reward</h2>
+        <RewardFields form={draft} onChange={setDraft} idPrefix="new-reward" />
+        <Button type="submit" disabled={create.isPending} className="bg-purple-700 text-white hover:bg-purple-600">
+          {create.isPending ? 'Adding…' : 'Add reward'}
+        </Button>
+      </form>
+
+      {isLoading ? (
+        <div className="skeleton h-40 rounded-3xl" role="status" aria-label="Loading rewards" />
+      ) : (
+        <ul className="space-y-3">
+          {data?.map((reward) => (
+            // Keyed on updatedAt so the form resets to saved values after each save.
+            <CatalogueRow key={`${reward.id}-${reward.updatedAt}`} reward={reward} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function UsersTab() {
   const [search, setSearch] = useState('');
   const query = useDebounced(search.trim(), 300);
@@ -360,6 +516,8 @@ export default function AdminPage() {
               <ReportsTab />
             ) : tab === 'rewards' ? (
               <RewardsTab />
+            ) : tab === 'catalogue' ? (
+              <CatalogueTab />
             ) : (
               <UsersTab />
             )}

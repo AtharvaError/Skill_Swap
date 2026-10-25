@@ -11,9 +11,9 @@ A peer-to-peer skill exchange platform: list what you can teach and what you wan
 - **Reviews and badges** — rate your partner after a session. Badges (First Swap, Mentor, Top Rated, Verified skill) are awarded automatically.
 - **Credits** — one credit is 15 minutes of teaching. A skill swap is free; a lesson costs the learner credits, which are held at booking, paid to the teacher when the learner confirms the lesson, and refunded if it is cancelled. Joining, badges and five-star reviews pay bonus credits. The rules live in `apps/api/src/credits/credits.rules.ts`.
 - **Safety** — report a member or block them. A block works both ways: you disappear from each other's Discover, the connection ends, and upcoming sessions are cancelled with held credits refunded. Unblock from your profile.
-- **Admin panel** (`/admin`) — for emails listed in `ADMIN_EMAILS`: review reports, suspend or reinstate accounts, and fulfil or reject reward requests with a note the member sees.
+- **Admin panel** (`/admin`) — for emails listed in `ADMIN_EMAILS`: review reports, suspend or reinstate accounts, and manage the rewards catalogue, and fulfil or reject reward requests with a note the member sees.
 - **Password reset** — emailed single-use links that expire after an hour (via Resend; in development the link is printed in the API console).
-- **Rewards (preview)** — a catalogue where credits earned by teaching can be redeemed. Nothing is issued yet: redeeming records a pending request that can be cancelled for a refund. See `apps/api/src/rewards/rewards.catalog.ts` for what going live needs.
+- **Rewards** — spend credits earned by teaching on rewards from the catalogue. Admins manage the catalogue (prices, stock, hiding) in the admin panel and deliver each request with a note, such as a gift code, that the member sees on their Rewards page.
 - **Profiles and leaderboard** — public profiles with skills, availability, badges and reviews; a leaderboard ranked by completed sessions.
 
 Optional integrations, each enabled by setting its environment variables:

@@ -42,6 +42,7 @@ function RewardCard({
 }) {
   const [confirming, setConfirming] = useState(false);
   const shortBy = reward.cost - redeemable;
+  const soldOut = reward.stock === 0;
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -60,7 +61,14 @@ function RewardCard({
 
   return (
     <li className="glass-card flex flex-col rounded-3xl p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">{reward.category}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">{reward.category}</p>
+        {reward.stock !== null ? (
+          <p className={cn('text-xs font-medium', soldOut ? 'text-rose-300' : 'text-slate-400')}>
+            {soldOut ? 'Out of stock' : `${reward.stock} left`}
+          </p>
+        ) : null}
+      </div>
       <h3 className="mt-2 text-lg font-semibold text-white">{reward.title}</h3>
       <p className="mt-1 flex-1 text-sm text-slate-400">{reward.description}</p>
 
@@ -70,7 +78,9 @@ function RewardCard({
           {plural(reward.cost, 'credit')}
         </span>
 
-        {shortBy > 0 ? (
+        {soldOut ? (
+          <span className="text-xs text-slate-500">Check back later</span>
+        ) : shortBy > 0 ? (
           <span className="text-xs text-slate-500">Teach {plural(shortBy, 'more credit')} to unlock</span>
         ) : confirming ? (
           <span className="flex items-center gap-2">
@@ -233,17 +243,19 @@ export default function RewardsPage() {
             <h2 id="catalog-heading" className="text-xl font-semibold text-white">
               Rewards
             </h2>
-            {rewards.preview ? (
-              <p className="rounded-2xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
-                <span className="font-semibold">Preview.</span> Rewards aren&apos;t being issued yet. Redeeming
-                records a pending request and holds the credits; you can cancel it at any time for a full refund.
-              </p>
-            ) : null}
-            <ul className="grid gap-4 sm:grid-cols-2">
-              {rewards.catalog.map((reward) => (
-                <RewardCard key={reward.id} reward={reward} redeemable={wallet.redeemable} onRedeemed={refresh} />
-              ))}
-            </ul>
+            <p className="text-sm text-slate-400">
+              Redeeming sends a request to the SkillSwap team, who deliver your reward here under Your requests.
+              Until then you can cancel it for a full refund.
+            </p>
+            {rewards.catalog.length === 0 ? (
+              <p className="glass-card rounded-3xl p-8 text-center text-slate-400">No rewards available right now.</p>
+            ) : (
+              <ul className="grid gap-4 sm:grid-cols-2">
+                {rewards.catalog.map((reward) => (
+                  <RewardCard key={reward.id} reward={reward} redeemable={wallet.redeemable} onRedeemed={refresh} />
+                ))}
+              </ul>
+            )}
           </section>
 
           {rewards.redemptions.length > 0 ? (

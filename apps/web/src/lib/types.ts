@@ -249,6 +249,8 @@ export interface Reward {
   description: string;
   category: string;
   cost: number;
+  /** How many are left; null means unlimited. */
+  stock: number | null;
 }
 
 export interface Redemption {
@@ -263,8 +265,6 @@ export interface Redemption {
 }
 
 export interface RewardsOverview {
-  /** True while rewards are a preview and nothing is actually issued. */
-  preview: boolean;
   balance: number;
   redeemable: number;
   catalog: Reward[];
@@ -307,4 +307,11 @@ export interface AdminUser extends AdminPerson {
 
 export interface AdminRedemption extends Redemption {
   user: AdminPerson;
+}
+
+export interface AdminReward extends Reward {
+  active: boolean;
+  updatedAt: string;
+  /** Requests that were not cancelled. */
+  redeemed: number;
 }
